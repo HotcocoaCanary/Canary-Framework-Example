@@ -39,9 +39,9 @@ if __name__ == "__main__":
         AppModule,
         log_level=log_level,
         fastapi_kwargs={
-            "title": "ly-ai-agent",
+            "title": "Canary-Agent",
             "version": "0.1.0",
-            "description": "基于 CF + LangGraph 的 AI 知识库问答平台",
+            "description": "基于 Canary Framework + LangGraph 的 AI 平台",
             "docs_url": "/docs",
             "redoc_url": "/redoc",
             "openapi_url": "/openapi.json",

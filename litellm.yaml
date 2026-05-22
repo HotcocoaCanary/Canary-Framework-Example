@@ -1,0 +1,10 @@
+model_list:
+
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      model: openai/deepseek-v4-pro
+      api_base: ${DASHSCOPE_API_BASE}
+      api_key: ${DASHSCOPE_API_KEY}
+
+general_settings:
+  master_key: ${LITELLM_MASTER_KEY}

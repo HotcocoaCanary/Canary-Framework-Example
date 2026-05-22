@@ -1,0 +1,43 @@
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: ca_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRESQL_USER}
+      POSTGRES_PASSWORD: ${POSTGRESQL_PASSWORD}
+      POSTGRES_DB: ${POSTGRESQL_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  litellm:
+    image: dhi.m.daocloud.io/litellm:1
+    container_name: ca_litellm
+    depends_on:
+      - postgres
+    ports:
+      - "4100:4000"
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://${POSTGRESQL_USER}:${POSTGRESQL_PASSWORD}@${POSTGRESQL_BASE}/litellm
+      - LITELLM_MODE=production
+    volumes:
+      - ./litellm.yaml:/app/config.yaml
+
+  app:
+    build: .
+    container_name: ca_app
+    depends_on:
+      - postgres
+      - litellm
+    env_file:
+      - .env
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
