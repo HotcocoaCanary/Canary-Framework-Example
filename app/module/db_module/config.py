@@ -3,10 +3,10 @@ from cf import config
 
 @config
 class DBConfig:
-    postgres_username: str = "postgres"
-    postgres_password: str = "postgres"
-    postgres_base: str = "localhost:5432"
-    postgres_database: str = "ly_ai_agent"
+    postgres_username: str
+    postgres_password: str
+    postgres_base: str
+    postgres_database: str
 
     @property
     def database_url(self) -> str:

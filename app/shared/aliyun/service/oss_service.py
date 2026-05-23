@@ -2,7 +2,7 @@ import logging
 
 import oss2
 
-from cf import service, on_init, ServiceContext
+from cf import service, on_init, Context
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 @service(name="OSSClient")
 class OSSClient:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         cfg = ctx.config
         self._endpoint = cfg.oss_endpoint
         self._region = cfg.oss_region

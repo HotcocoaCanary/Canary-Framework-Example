@@ -4,7 +4,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.common.types import UserContext
-from cf import service, on_init, on_end, ServiceContext
+from cf import service, on_init, on_end, Context
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @service(name="AuthService")
 class AuthService:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         self._base_url = ctx.config.pigx_base
         self._http_client = httpx.AsyncClient(timeout=10.0)
 

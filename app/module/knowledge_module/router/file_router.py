@@ -2,12 +2,13 @@ from fastapi import Depends, Query, Request
 
 from app.common.depends import get_current_user
 from app.module.knowledge_module.schema import CreateFolderRequest
-from cf.web.fastapi import router, get, post, delete, RouterContext
+from cf import Context
+from cf.web.fastapi import router, get, post, delete
 
 
 @router(prefix="/api/v1/knowledge-bases/file-op")
 class FileRouter:
-    def __init__(self, ctx: RouterContext):
+    def __init__(self, ctx: Context):
         self.svc = ctx.service
 
     @post("/{kb_id}/{folder_path:path}/", tags=["文件管理"],

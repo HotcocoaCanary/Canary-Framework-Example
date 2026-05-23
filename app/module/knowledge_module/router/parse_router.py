@@ -6,12 +6,13 @@ from app.module.knowledge_module.schema import (
     UpdateParsedRequest,
     ChunkRequest,
 )
-from cf.web.fastapi import router, get, post, put, RouterContext
+from cf import Context
+from cf.web.fastapi import router, get, post, put
 
 
 @router(prefix="/api/v1/knowledge-bases/file-op")
 class ParseRouter:
-    def __init__(self, ctx: RouterContext):
+    def __init__(self, ctx: Context):
         self.svc = ctx.service
 
     @get("/{kb_id}/parse-tasks", tags=["解析任务"], summary="解析任务列表",

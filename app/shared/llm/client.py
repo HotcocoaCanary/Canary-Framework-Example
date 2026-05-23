@@ -3,7 +3,7 @@ from typing import AsyncIterator
 
 import litellm
 
-from cf import service, on_init, ServiceContext, config
+from cf import service, on_init, Context, config
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class LLMConfig:
 @service(name="LLMClient", config=LLMConfig)
 class LLMClient:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         self._api_base = ctx.config.litellm_url
         self._api_key = ctx.config.litellm_api_key
         self._embedding_model = ctx.config.embedding_model

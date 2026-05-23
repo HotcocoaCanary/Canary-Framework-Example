@@ -6,7 +6,7 @@ from queue import Queue
 from app.module.db_module.models import KbChunk
 from app.module.db_module.service import DBService
 from app.shared.llm.client import LLMClient
-from cf import service, on_init, on_start, on_end, ServiceContext, config
+from cf import service, on_init, on_start, on_end, Context, config
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class ChunkWorkerConfig:
 @service(name="ChunkWorker", deps=[DBService, LLMClient], config=ChunkWorkerConfig)
 class ChunkWorker:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         self._queue: Queue = Queue()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None

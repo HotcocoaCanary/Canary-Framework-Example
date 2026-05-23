@@ -9,7 +9,7 @@ from app.module.db_module.models import Session
 from app.module.db_module.service import DBService
 from app.common.response import R
 from app.common.types import UserContext
-from cf import service, on_init, ServiceContext
+from cf import service, on_init, Context
 from cf.web.fastapi import web
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 @service(name="SessionService", deps=[DBService])
 class SessionService:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         pass
 
     async def list_sessions(self, user: UserContext, current: int = 1, size: int = 20) -> R[dict]:

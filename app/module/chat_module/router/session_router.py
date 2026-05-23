@@ -1,12 +1,13 @@
 from fastapi import Depends, Query
 
 from app.common.depends import get_current_user
-from cf.web.fastapi import router, get, delete, RouterContext
+from cf import Context
+from cf.web.fastapi import router, get, delete
 
 
 @router(prefix="/api/v1/sessions")
 class SessionRouter:
-    def __init__(self, ctx: RouterContext):
+    def __init__(self, ctx: Context):
         self.svc = ctx.service
 
     @get("/", tags=["会话"], summary="会话列表", description="获取当前用户的所有会话，按更新时间倒序")

@@ -16,7 +16,7 @@ from app.module.knowledge_module.schema import (
 )
 from app.common.response import R
 from app.common.types import UserContext
-from cf import service, on_init, ServiceContext
+from cf import service, on_init, Context
 from cf.web.fastapi import web
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @service(name="KbService", deps=[DBService])
 class KbService:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         pass
 
     def _kb_to_response(self, kb: KnowledgeBase, file_count: int = 0, total_size: int = 0) -> KbResponse:

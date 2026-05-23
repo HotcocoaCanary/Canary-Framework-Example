@@ -16,7 +16,7 @@ from app.module.knowledge_module.schema import (
 from app.shared.aliyun.service.oss_service import OSSClient
 from app.common.response import R
 from app.common.types import UserContext
-from cf import service, on_init, ServiceContext
+from cf import service, on_init, Context
 from cf.web.fastapi import web
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @service(name="FileService", deps=[DBService, OSSClient])
 class FileService:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         pass
 
     async def upload_files(

@@ -19,7 +19,7 @@ from app.common.response import R
 from app.common.types import UserContext
 from app.shared.worker.chunk_worker import ChunkWorker
 from app.shared.worker.parse_worker import ParseWorker
-from cf import service, on_init, ServiceContext
+from cf import service, on_init, Context
 from cf.web.fastapi import web
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 @service(name="ParseService", deps=[DBService, ParseWorker, ChunkWorker])
 class ParseService:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         pass
 
     async def list_tasks(self, kb_id: str, user: UserContext, current: int = 1, size: int = 20) -> R[dict]:

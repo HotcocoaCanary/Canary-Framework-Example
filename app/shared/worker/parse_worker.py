@@ -5,7 +5,7 @@ from queue import Queue
 
 from app.module.db_module.service import DBService
 from app.shared.aliyun.service.oss_service import OSSClient
-from cf import service, on_init, on_start, on_end, ServiceContext, config
+from cf import service, on_init, on_start, on_end, Context, config
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class ParseWorkerConfig:
 @service(name="ParseWorker", deps=[DBService, OSSClient], config=ParseWorkerConfig)
 class ParseWorker:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         self._queue: Queue = Queue()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None

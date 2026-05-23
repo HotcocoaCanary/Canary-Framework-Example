@@ -2,12 +2,13 @@ from fastapi import Depends
 
 from app.common.depends import get_current_user
 from app.module.chat_module.schema import ChatCompletionRequest
-from cf.web.fastapi import router, post, RouterContext
+from cf import Context
+from cf.web.fastapi import router, post
 
 
 @router(prefix="/v1")
 class ChatRouter:
-    def __init__(self, ctx: RouterContext):
+    def __init__(self, ctx: Context):
         self.svc = ctx.service
 
     @post("/chat/completions", tags=["问答"], summary="RAG 问答 (OpenAI 兼容)",

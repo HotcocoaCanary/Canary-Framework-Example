@@ -12,7 +12,7 @@ from app.module.db_module.models import Session, Message
 from app.module.db_module.service import DBService
 from app.shared.llm.client import LLMClient
 from app.common.types import UserContext
-from cf import service, on_init, ServiceContext
+from cf import service, on_init, Context
 from cf.web.fastapi import web
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 @service(name="RAGService", deps=[DBService, LLMClient])
 class RAGService:
     @on_init
-    def init(self, ctx: ServiceContext):
+    def init(self, ctx: Context):
         pass
 
     async def chat_completions(self, user: UserContext, req: ChatCompletionRequest):

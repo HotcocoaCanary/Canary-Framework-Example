@@ -11,7 +11,7 @@ from app.module.db_module.repository.message_repo import MessageRepo
 from app.module.db_module.repository.node_repo import NodeRepo
 from app.module.db_module.repository.parse_repo import ParseRepo
 from app.module.db_module.repository.session_repo import SessionRepo
-from cf import service, on_init, on_start, on_end, ServiceContext
+from cf import service, on_init, on_start, on_end, Context
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 @service(name="DBService")
 class DBService:
     @on_init
-    async def init(self, ctx: ServiceContext):
+    async def init(self, ctx: Context):
         self._engine = create_async_engine(
             ctx.config.database_url,
             echo=False,

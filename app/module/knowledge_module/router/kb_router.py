@@ -4,12 +4,13 @@ from fastapi import Depends, Query
 
 from app.common.depends import get_current_user
 from app.module.knowledge_module.schema import CreateKbRequest, UpdateKbRequest
-from cf.web.fastapi import router, get, post, put, delete, RouterContext
+from cf import Context
+from cf.web.fastapi import router, get, post, put, delete
 
 
 @router(prefix="/api/v1/knowledge-bases")
 class KbRouter:
-    def __init__(self, ctx: RouterContext):
+    def __init__(self, ctx: Context):
         self.svc = ctx.service
 
     @post("/", tags=["知识库"], summary="创建知识库", description="创建一个新的知识库，当前用户自动成为 owner")
