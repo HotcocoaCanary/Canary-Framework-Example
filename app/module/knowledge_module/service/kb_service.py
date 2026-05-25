@@ -16,8 +16,8 @@ from app.module.knowledge_module.schema import (
 )
 from app.common.response import R
 from app.common.types import UserContext
-from cf import service, on_init, Context
-from cf.web.fastapi import web
+from canary_framework import service, on_init, Context
+from canary_framework.web.fastapi import web
 
 logger = logging.getLogger(__name__)
 

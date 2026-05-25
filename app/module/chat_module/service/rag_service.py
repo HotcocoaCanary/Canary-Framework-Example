@@ -12,8 +12,8 @@ from app.module.db_module.models import Session, Message
 from app.module.db_module.service import DBService
 from app.shared.llm.client import LLMClient
 from app.common.types import UserContext
-from cf import service, on_init, Context
-from cf.web.fastapi import web
+from canary_framework import service, on_init, Context
+from canary_framework.web.fastapi import web
 
 logger = logging.getLogger(__name__)
 

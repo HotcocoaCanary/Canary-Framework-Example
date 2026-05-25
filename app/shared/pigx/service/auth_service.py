@@ -4,7 +4,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.common.types import UserContext
-from cf import service, on_init, on_end, Context
+from canary_framework import service, on_init, on_end, Context
 
 logger = logging.getLogger(__name__)
 

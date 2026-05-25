@@ -6,8 +6,8 @@ from app.module.knowledge_module.schema import (
     UpdateParsedRequest,
     ChunkRequest,
 )
-from cf import Context
-from cf.web.fastapi import router, get, post, put
+from canary_framework import (Context)
+from canary_framework.web.fastapi import router, get, post, put
 
 
 @router(prefix="/api/v1/knowledge-bases/file-op")

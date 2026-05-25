@@ -1,6 +1,6 @@
 from app.module.db_module.config import DBConfig
 from app.module.db_module.service import DBService
-from cf import module
+from canary_framework import module
 
 
 @module(name="DBModule", services=[DBService], config=DBConfig)

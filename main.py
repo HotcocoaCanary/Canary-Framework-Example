@@ -8,20 +8,17 @@ from app.shared.llm.client import LLMClient
 from app.shared.pigx.module import PigXModule
 from app.shared.worker.chunk_worker import ChunkWorker
 from app.shared.worker.parse_worker import ParseWorker
-from cf import module, config
-from cf.web.fastapi import web, get, WebCanary
+from canary_framework import module, config
+from canary_framework.web.fastapi import web, get, WebCanary
 
 
 @config
 class AppConfig:
-    host: str = "0.0.0.0"
-    port: int = 8000
-    title: str = "Canary-Agent"
-    version: str = "0.1.0"
-    description: str = "基于 Canary Framework + LangGraph 的 AI 平台"
-    docs_url: str = "/docs"
-    redoc_url: str = "/redoc"
-    openapi_url: str = "/openapi.json"
+    uvicorn_host: str = "0.0.0.0"
+    uvicorn_port: int = 8000
+    fastapi_title: str = "Canary-Agent"
+    fastapi_version: str = "0.1.0"
+    fastapi_description: str = "基于 Canary Framework + LangGraph 的 AI 平台"
 
 
 @web()

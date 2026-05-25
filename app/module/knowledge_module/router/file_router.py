@@ -2,8 +2,8 @@ from fastapi import Depends, Query, Request
 
 from app.common.depends import get_current_user
 from app.module.knowledge_module.schema import CreateFolderRequest
-from cf import Context
-from cf.web.fastapi import router, get, post, delete
+from canary_framework import Context
+from canary_framework.web.fastapi import router, get, post, delete
 
 
 @router(prefix="/api/v1/knowledge-bases/file-op")

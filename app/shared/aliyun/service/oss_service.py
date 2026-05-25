@@ -2,7 +2,7 @@ import logging
 
 import oss2
 
-from cf import service, on_init, Context
+from canary_framework import service, on_init, Context
 
 logger = logging.getLogger(__name__)
 

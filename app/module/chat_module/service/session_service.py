@@ -6,17 +6,17 @@ from fastapi import HTTPException
 from app.module.chat_module.router.session_router import SessionRouter
 from app.module.chat_module.schema import SessionResponse, MessageResponse
 from app.module.db_module.models import Session
-from app.module.db_module.service import DBService
+from app.module.db_module.module import DBModule
 from app.common.response import R
 from app.common.types import UserContext
-from cf import service, on_init, Context
-from cf.web.fastapi import web
+from canary_framework import service, on_init, Context
+from canary_framework.web.fastapi import web
 
 logger = logging.getLogger(__name__)
 
 
 @web(routers=[SessionRouter])
-@service(name="SessionService", deps=[DBService])
+@service(name="SessionService", deps=[DBModule])
 class SessionService:
     @on_init
     def init(self, ctx: Context):

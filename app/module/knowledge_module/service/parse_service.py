@@ -19,8 +19,8 @@ from app.common.response import R
 from app.common.types import UserContext
 from app.shared.worker.chunk_worker import ChunkWorker
 from app.shared.worker.parse_worker import ParseWorker
-from cf import service, on_init, Context
-from cf.web.fastapi import web
+from canary_framework import service, on_init, Context
+from canary_framework.web.fastapi import web
 
 logger = logging.getLogger(__name__)
 

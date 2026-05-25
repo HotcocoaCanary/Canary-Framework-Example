@@ -3,7 +3,7 @@ name = "Canary-Agent"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "cf[web]>=0.1.0",
+    "canary-framework[web]>=0.1.2",
     "sqlmodel[asyncio]>=0.0.22",
     "asyncpg>=0.30.0",
     "pgvector>=0.2.0",
@@ -17,9 +17,6 @@ dependencies = [
     "sqlalchemy>=2.0.49",
     "alembic>=1.18.4",
 ]
-
-[tool.uv.sources]
-cf = { git = "git+ssh://git@github.com/HotcocoaCanary/Canary-Framework.git", branch = "main" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

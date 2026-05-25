@@ -5,7 +5,7 @@ from queue import Queue
 
 from app.module.db_module.service import DBService
 from app.shared.aliyun.service.oss_service import OSSClient
-from cf import service, on_init, on_start, on_end, Context, config
+from canary_framework import service, on_init, on_start, on_end, Context, config
 
 logger = logging.getLogger(__name__)
 

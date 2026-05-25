@@ -4,8 +4,8 @@ from fastapi import Depends, Query
 
 from app.common.depends import get_current_user
 from app.module.knowledge_module.schema import CreateKbRequest, UpdateKbRequest
-from cf import Context
-from cf.web.fastapi import router, get, post, put, delete
+from canary_framework import Context
+from canary_framework.web.fastapi import router, get, post, put, delete
 
 
 @router(prefix="/api/v1/knowledge-bases")
