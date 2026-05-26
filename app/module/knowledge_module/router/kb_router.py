@@ -11,7 +11,8 @@ from canary_framework.web.fastapi import router, get, post, put, delete
 @router(prefix="/api/v1/knowledge-bases")
 class KbRouter:
     def __init__(self, ctx: Context):
-        self.svc = ctx.service
+        from app.module.knowledge_module.service.kb_service import KbService
+        self.svc = ctx.resolve(KbService)
 
     @post("/", tags=["知识库"], summary="创建知识库", description="创建一个新的知识库，当前用户自动成为 owner")
     async def create(self, req: CreateKbRequest, user=Depends(get_current_user)):

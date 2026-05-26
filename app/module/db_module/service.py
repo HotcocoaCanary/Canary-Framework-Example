@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
+from app.module.db_module.config import DBConfig
 from app.module.db_module.repository.chunk_repo import ChunkRepo
 from app.module.db_module.repository.file_record_repo import FileRecordRepo
 from app.module.db_module.repository.kb_repo import KbRepo
@@ -20,8 +21,9 @@ logger = logging.getLogger(__name__)
 class DBService:
     @on_init
     async def init(self, ctx: Context):
+        self._cfg = ctx.get_config(DBConfig)
         self._engine = create_async_engine(
-            ctx.config.database_url,
+            self._cfg.database_url,
             echo=False,
             pool_size=20,
             max_overflow=10,

@@ -9,7 +9,8 @@ from canary_framework.web.fastapi import router, post
 @router(prefix="/v1")
 class ChatRouter:
     def __init__(self, ctx: Context):
-        self.svc = ctx.service
+        from app.module.chat_module.service.rag_service import RAGService
+        self.svc = ctx.resolve(RAGService)
 
     @post("/chat/completions", tags=["问答"], summary="RAG 问答 (OpenAI 兼容)",
           description="支持流式 (SSE) 和非流式返回。session_id 为 null 时自动创建新会话。"

@@ -2,6 +2,7 @@ import logging
 
 import oss2
 
+from app.shared.aliyun.config import AliyunConfig
 from canary_framework import service, on_init, Context
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 class OSSClient:
     @on_init
     def init(self, ctx: Context):
-        cfg = ctx.config
+        cfg = ctx.get_config(AliyunConfig)
         self._endpoint = cfg.oss_endpoint
         self._region = cfg.oss_region
         self._bucket_name = cfg.oss_bucket

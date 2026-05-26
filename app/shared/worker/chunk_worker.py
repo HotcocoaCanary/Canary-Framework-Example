@@ -24,8 +24,9 @@ class ChunkWorker:
         self._queue: Queue = Queue()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._chunk_size = ctx.config.chunk_size
-        self._chunk_overlap = ctx.config.chunk_overlap
+        cfg = ctx.get_config(ChunkWorkerConfig)
+        self._chunk_size = cfg.chunk_size
+        self._chunk_overlap = cfg.chunk_overlap
         self._running = True
 
     @on_start

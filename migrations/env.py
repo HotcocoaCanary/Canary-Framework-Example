@@ -6,7 +6,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from sqlmodel import SQLModel
+from dotenv import load_dotenv
 from app.module.db_module.models import *  # noqa: F401, F403
 
 config = context.config
@@ -16,12 +16,13 @@ if config.config_file_name is not None:
 
 target_metadata = SQLModel.metadata
 
+load_dotenv()
 
 def build_database_url() -> str:
-    user = os.getenv("POSTGRESQL_USER", "postgres")
-    password = os.getenv("POSTGRESQL_PASSWORD", "postgres")
-    host = os.getenv("POSTGRESQL_BASE", "localhost:5432")
-    database = os.getenv("POSTGRESQL_DB", "ly_ai_agent")
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    host = os.getenv("POSTGRES_BASE")
+    database = os.getenv("POSTGRES_DB")
     return f"postgresql+asyncpg://{user}:{password}@{host}/{database}"
 
 

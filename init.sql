@@ -1,2 +1,2 @@
-\c postgres
 CREATE DATABASE litellm;
+CREATE EXTENSION IF NOT EXISTS vector;

@@ -9,7 +9,8 @@ from canary_framework.web.fastapi import router, get, post, delete
 @router(prefix="/api/v1/knowledge-bases/file-op")
 class FileRouter:
     def __init__(self, ctx: Context):
-        self.svc = ctx.service
+        from app.module.knowledge_module.service.file_service import FileService
+        self.svc = ctx.resolve(FileService)
 
     @post("/{kb_id}/{folder_path:path}/", tags=["文件管理"],
           summary="上传文件 / 创建文件夹",

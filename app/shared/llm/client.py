@@ -24,9 +24,10 @@ class LLMConfig:
 class LLMClient:
     @on_init
     def init(self, ctx: Context):
-        self._api_base = ctx.config.litellm_url
-        self._api_key = ctx.config.litellm_api_key
-        self._embedding_model = ctx.config.embedding_model
+        cfg = ctx.get_config(LLMConfig)
+        self._api_base = cfg.litellm_url
+        self._api_key = cfg.litellm_api_key
+        self._embedding_model = cfg.embedding_model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         response = await litellm.aembedding(

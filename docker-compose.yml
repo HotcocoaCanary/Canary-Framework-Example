@@ -35,8 +35,10 @@ services:
       - litellm
     env_file:
       - .env
+    volumes:
+      - .:/app
     ports:
-      - "${SERVER_PORT}:${SERVER_PORT}"
+      - "${UVICORN_PORT}:${UVICORN_PORT}"
     restart: unless-stopped
 
 volumes:

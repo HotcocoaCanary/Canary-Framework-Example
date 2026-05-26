@@ -22,7 +22,7 @@ class ParseWorker:
         self._queue: Queue = Queue()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._max_retries = ctx.config.parse_worker_max_retries
+        self._max_retries = ctx.get_config(ParseWorkerConfig).parse_worker_max_retries
         self._running = True
 
     @on_start

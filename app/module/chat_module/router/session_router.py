@@ -8,7 +8,8 @@ from canary_framework.web.fastapi import router, get, delete
 @router(prefix="/api/v1/sessions")
 class SessionRouter:
     def __init__(self, ctx: Context):
-        self.svc = ctx.service
+        from app.module.chat_module.service.session_service import SessionService
+        self.svc = ctx.resolve(SessionService)
 
     @get("/", tags=["会话"], summary="会话列表", description="获取当前用户的所有会话，按更新时间倒序")
     async def list_sessions(

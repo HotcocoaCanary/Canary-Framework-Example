@@ -13,7 +13,8 @@ from canary_framework.web.fastapi import router, get, post, put
 @router(prefix="/api/v1/knowledge-bases/file-op")
 class ParseRouter:
     def __init__(self, ctx: Context):
-        self.svc = ctx.service
+        from app.module.knowledge_module.service.parse_service import ParseService
+        self.svc = ctx.resolve(ParseService)
 
     @get("/{kb_id}/parse-tasks", tags=["解析任务"], summary="解析任务列表",
          description="获取知识库下所有解析任务及其关联文件的状态")
