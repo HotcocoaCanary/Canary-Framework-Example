@@ -2,7 +2,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from canary_framework import service, on_init, on_start, on_end, Context
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.module.db_module.config import DBConfig
 from app.module.db_module.repository.chunk_repo import ChunkRepo

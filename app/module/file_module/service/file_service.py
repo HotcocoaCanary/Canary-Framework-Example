@@ -29,11 +29,10 @@ class FileService:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = True
         self._parse_svc = ParseService()
-        self._embed_svc: EmbeddingService | None = None
+        self._embed_svc = ctx.get_service(EmbeddingService)
 
     @on_start
-    async def start(self, ctx: Context):
-        self._embed_svc = ctx.resolve(EmbeddingService)
+    async def start(self):
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info("FileService background worker started")

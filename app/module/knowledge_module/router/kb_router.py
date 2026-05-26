@@ -46,7 +46,7 @@ class KbRouter:
         return await self.svc.get_user_storage(user)
 
     @get("/{kb_id}", tags=["知识库"], summary="知识库详情")
-    async def get(self, kb_id: str, user=Depends(get_current_user)):
+    async def view_kb(self, kb_id: str, user=Depends(get_current_user)):
         return await self.svc.get_kb(kb_id, user)
 
     @put("/{kb_id}", tags=["知识库"], summary="更新知识库")

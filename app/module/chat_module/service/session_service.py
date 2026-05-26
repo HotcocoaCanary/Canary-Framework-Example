@@ -10,13 +10,13 @@ from app.common.types import UserContext
 from app.module.chat_module.router.session_router import SessionRouter
 from app.module.chat_module.schema import SessionResponse, MessageResponse
 from app.module.db_module.models import Session
-from app.module.db_module.module import DBModule
+from app.module.db_module.service import DBService
 
 logger = logging.getLogger(__name__)
 
 
 @web(routers=[SessionRouter])
-@service(name="SessionService", deps=[DBModule])
+@service(name="SessionService", deps=[DBService])
 class SessionService:
     @on_init
     def init(self, ctx: Context):
