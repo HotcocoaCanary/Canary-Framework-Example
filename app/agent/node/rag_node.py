@@ -7,7 +7,7 @@ async def retrieve_node(state: RAGState, config: dict = None) -> RAGState:
     configurable = config.get("configurable", {})
     chunk_repo = configurable.get("chunk_repo")
     llm_client = configurable.get("llm_client")
-    node_repo = configurable.get("node_repo")
+    file_repo = configurable.get("file_repo")
 
     embedding_list = await llm_client.embed([state["query"]])
     query_embedding = embedding_list[0]
@@ -20,16 +20,14 @@ async def retrieve_node(state: RAGState, config: dict = None) -> RAGState:
     retrieved = []
     sources = []
     for chunk in chunks:
-        node = await node_repo.get_by_id(chunk.file_id)
+        f = await file_repo.get_by_id(chunk.file_id)
         retrieved.append({"content": chunk.content, "file_id": chunk.file_id, "chunk_index": chunk.chunk_index})
         sources.append({
-            "file_name": node.name if node else "",
-            "file_type": node.node_type if node else "",
-            "oss_url": node.oss_url if node else "",
+            "file_name": f.name if f else "",
+            "file_type": f.file_type if f else "",
+            "oss_url": f.oss_url if f else "",
             "chunk_index": chunk.chunk_index,
             "content": chunk.content[:500],
-            "page": chunk.page,
-            "position": None,
         })
     state["retrieved_chunks"] = retrieved
     state["sources"] = sources

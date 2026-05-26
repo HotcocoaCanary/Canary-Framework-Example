@@ -1,6 +1,6 @@
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, delete
+from sqlmodel import select, delete, func
 from app.module.db_module.models import KbChunk
 
 
@@ -27,6 +27,12 @@ class ChunkRepo:
         result = await self._session.exec(stmt)
         return list(result.all())
 
+    async def search_by_file(self, embedding: list[float], file_ids: list[str], top_k: int = 5) -> list[KbChunk]:
+        stmt = select(KbChunk).where(KbChunk.file_id.in_(file_ids))
+        stmt = stmt.order_by(KbChunk.embedding.cosine_distance(embedding)).limit(top_k)
+        result = await self._session.exec(stmt)
+        return list(result.all())
+
     async def delete_by_file_id(self, file_id: str) -> None:
         stmt = delete(KbChunk).where(KbChunk.file_id == file_id)
         await self._session.exec(stmt)
@@ -41,3 +47,8 @@ class ChunkRepo:
         stmt = select(KbChunk).where(KbChunk.file_id == file_id).order_by(KbChunk.chunk_index)
         result = await self._session.exec(stmt)
         return list(result.all())
+
+    async def count_by_file_id(self, file_id: str) -> int:
+        stmt = select(func.count()).where(KbChunk.file_id == file_id)
+        result = await self._session.exec(stmt)
+        return result.one()

@@ -5,12 +5,11 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 from app.module.db_module.config import DBConfig
 from app.module.db_module.repository.chunk_repo import ChunkRepo
-from app.module.db_module.repository.file_record_repo import FileRecordRepo
+from app.module.db_module.repository.collection_repo import CollectionRepo
+from app.module.db_module.repository.file_repo import FileRepo
 from app.module.db_module.repository.kb_repo import KbRepo
 from app.module.db_module.repository.member_repo import MemberRepo
 from app.module.db_module.repository.message_repo import MessageRepo
-from app.module.db_module.repository.node_repo import NodeRepo
-from app.module.db_module.repository.parse_repo import ParseRepo
 from app.module.db_module.repository.session_repo import SessionRepo
 from canary_framework import service, on_init, on_start, on_end, Context
 
@@ -57,17 +56,14 @@ class DBService:
     def member_repo(self, session: AsyncSession) -> MemberRepo:
         return MemberRepo(session)
 
-    def node_repo(self, session: AsyncSession) -> NodeRepo:
-        return NodeRepo(session)
-
-    def file_record_repo(self, session: AsyncSession) -> FileRecordRepo:
-        return FileRecordRepo(session)
-
-    def parse_repo(self, session: AsyncSession) -> ParseRepo:
-        return ParseRepo(session)
+    def file_repo(self, session: AsyncSession) -> FileRepo:
+        return FileRepo(session)
 
     def chunk_repo(self, session: AsyncSession) -> ChunkRepo:
         return ChunkRepo(session)
+
+    def collection_repo(self, session: AsyncSession) -> CollectionRepo:
+        return CollectionRepo(session)
 
     def session_repo(self, session: AsyncSession) -> SessionRepo:
         return SessionRepo(session)

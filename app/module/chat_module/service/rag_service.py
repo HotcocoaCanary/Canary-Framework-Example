@@ -65,9 +65,8 @@ class RAGService:
         yield f"event: session\ndata: {json.dumps({'session_id': session_id})}\n\n"
 
         async with self.db_service.transaction() as s:
-            kb_repo = self.db_service.kb_repo(s)
+            file_repo = self.db_service.file_repo(s)
             member_repo = self.db_service.member_repo(s)
-            node_repo = self.db_service.node_repo(s)
             chunk_repo = self.db_service.chunk_repo(s)
             message_repo = self.db_service.message_repo(s)
 
@@ -102,7 +101,7 @@ class RAGService:
                 "configurable": {
                     "chunk_repo": chunk_repo,
                     "llm_client": self.llm_client,
-                    "node_repo": node_repo,
+                    "file_repo": file_repo,
                 }
             })
 
@@ -160,9 +159,8 @@ class RAGService:
 
     async def _chat(self, session_id: str, user: UserContext, req: ChatCompletionRequest):
         async with self.db_service.transaction() as s:
-            kb_repo = self.db_service.kb_repo(s)
+            file_repo = self.db_service.file_repo(s)
             member_repo = self.db_service.member_repo(s)
-            node_repo = self.db_service.node_repo(s)
             chunk_repo = self.db_service.chunk_repo(s)
             message_repo = self.db_service.message_repo(s)
 
@@ -196,7 +194,7 @@ class RAGService:
                 "configurable": {
                     "chunk_repo": chunk_repo,
                     "llm_client": self.llm_client,
-                    "node_repo": node_repo,
+                    "file_repo": file_repo,
                 }
             })
 

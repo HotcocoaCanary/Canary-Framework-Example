@@ -140,8 +140,7 @@ class KbService:
         async with self.db_service.transaction() as session:
             kb_repo = self.db_service.kb_repo(session)
             member_repo = self.db_service.member_repo(session)
-            node_repo = self.db_service.node_repo(session)
-            file_record_repo = self.db_service.file_record_repo(session)
+            file_repo = self.db_service.file_repo(session)
             chunk_repo = self.db_service.chunk_repo(session)
 
             kb = await kb_repo.get_by_id(kb_id)
@@ -151,10 +150,7 @@ class KbService:
                 raise HTTPException(status_code=403, detail="仅创建者可操作")
 
             await chunk_repo.delete_by_kb(kb_id)
-            await file_record_repo.delete_by_file_ids(
-                [n.id for n in await node_repo.list_by_kb(kb_id)]
-            )
-            await node_repo.delete_by_kb(kb_id)
+            await file_repo.delete_by_kb(kb_id)
             await member_repo.delete_by_kb(kb_id)
             await kb_repo.delete(kb_id)
 
@@ -222,8 +218,8 @@ class KbService:
 
     async def get_user_storage(self, user: UserContext) -> R[dict]:
         async with self.db_service.transaction() as session:
-            node_repo = self.db_service.node_repo(session)
-            used = await node_repo.total_size_by_owner(user.user_id)
+            file_repo = self.db_service.file_repo(session)
+            used = await file_repo.total_size_by_owner(user.user_id)
             used_formatted = f"{used / (1024 * 1024):.2f} MB" if used > 0 else "0 MB"
             return R.ok({
                 "used_bytes": used,
