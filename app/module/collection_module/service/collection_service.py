@@ -1,15 +1,16 @@
 import logging
 import uuid
 
-from fastapi import HTTPException
-from app.module.db_module.models import CollectionItem, KbFile
-from app.module.db_module.service import DBService
-from app.shared.parse.parse_service import ParseService
-from app.shared.embedding.embedding_service import EmbeddingService
-from app.common.response import R
-from app.common.types import UserContext
 from canary_framework import service, on_init, Context
 from canary_framework.web.fastapi import web
+from fastapi import HTTPException
+
+from app.common.response import R
+from app.common.types import UserContext
+from app.module.db_module.models import CollectionItem, KbFile
+from app.module.db_module.service import DBService
+from app.shared.embedding.embedding_service import EmbeddingService
+from app.shared.parse.parse_service import ParseService
 
 logger = logging.getLogger(__name__)
 

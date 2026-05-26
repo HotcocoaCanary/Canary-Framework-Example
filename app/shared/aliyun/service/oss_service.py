@@ -1,9 +1,9 @@
 import logging
 
 import oss2
+from canary_framework import service, on_init, Context
 
 from app.shared.aliyun.config import AliyunConfig
-from canary_framework import service, on_init, Context
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
+from canary_framework import Context
+from canary_framework.web.fastapi import router, get, delete
 from fastapi import Depends, Query
 
 from app.common.depends import get_current_user
-from canary_framework import Context
-from canary_framework.web.fastapi import router, get, delete
 
 
 @router(prefix="/api/v1/sessions")

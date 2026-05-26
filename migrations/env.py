@@ -3,10 +3,10 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from dotenv import load_dotenv
 from app.module.db_module.models import *  # noqa: F401, F403
 
 config = context.config
@@ -17,6 +17,7 @@ if config.config_file_name is not None:
 target_metadata = SQLModel.metadata
 
 load_dotenv()
+
 
 def build_database_url() -> str:
     user = os.getenv("POSTGRES_USER")

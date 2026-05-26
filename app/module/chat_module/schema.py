@@ -26,4 +26,5 @@ class ChatCompletionRequest(BaseModel):
     content: str = Field(description="用户问题")
     stream: bool = Field(default=True, description="是否流式返回")
     session_id: Optional[str] = Field(default=None, description="会话 ID, null 则自动创建新会话")
-    knowledge_scope: list[KnowledgeScope] = Field(default_factory=list, description="检索范围, 空数组表示用户所有知识库")
+    knowledge_scope: list[KnowledgeScope] = Field(default_factory=list,
+                                                  description="检索范围, 空数组表示用户所有知识库")

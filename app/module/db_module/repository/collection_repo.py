@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, func, delete
+from sqlmodel import select, func
 
 from app.module.db_module.models import CollectionItem
 

@@ -1,11 +1,11 @@
 import logging
 
 import httpx
+from canary_framework import service, on_init, on_end, Context
 from fastapi import HTTPException
 
 from app.common.types import UserContext
 from app.shared.pigx.config import PigXConfig
-from canary_framework import service, on_init, on_end, Context
 
 logger = logging.getLogger(__name__)
 

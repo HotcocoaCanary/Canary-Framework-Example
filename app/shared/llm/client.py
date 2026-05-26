@@ -2,7 +2,6 @@ import logging
 from typing import AsyncIterator
 
 import litellm
-
 from canary_framework import service, on_init, Context, config
 
 logger = logging.getLogger(__name__)

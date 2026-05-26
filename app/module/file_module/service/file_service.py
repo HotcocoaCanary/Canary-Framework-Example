@@ -4,9 +4,10 @@ import threading
 import uuid
 from queue import Queue
 
-from fastapi import HTTPException, Depends, Query, Request
+from canary_framework import service, on_init, on_start, on_end, Context
+from canary_framework.web.fastapi import web
+from fastapi import HTTPException
 
-from app.common.depends import get_current_user
 from app.common.response import R
 from app.common.types import UserContext
 from app.module.db_module.models import KbFile
@@ -14,8 +15,6 @@ from app.module.db_module.service import DBService
 from app.shared.aliyun.service.oss_service import OSSClient
 from app.shared.embedding.embedding_service import EmbeddingService
 from app.shared.parse.parse_service import ParseService
-from canary_framework import service, on_init, on_start, on_end, Context
-from canary_framework.web.fastapi import web
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +125,8 @@ class FileService:
                 unique_name = await file_repo.get_unique_name(kb_id, parent, file_name_only)
                 ext = file_name_only.rsplit(".", 1)[-1].lower() if "." in file_name_only else file_name_only.lower()
 
-                oss_key = self.oss_client.build_key(user.user_id, user.username, kb_id, self._join_path(parent, unique_name))
+                oss_key = self.oss_client.build_key(user.user_id, user.username, kb_id,
+                                                    self._join_path(parent, unique_name))
                 oss_url = self.oss_client.upload(oss_key, data, content_type)
 
                 file_id = f"file_{uuid.uuid4().hex[:20]}"

@@ -4,10 +4,11 @@ import threading
 import uuid
 from queue import Queue
 
+from canary_framework import service, on_init, on_start, on_end, Context, config
+
 from app.module.db_module.models import KbChunk
 from app.module.db_module.service import DBService
 from app.shared.llm.client import LLMClient
-from canary_framework import service, on_init, on_start, on_end, Context, config
 
 logger = logging.getLogger(__name__)
 

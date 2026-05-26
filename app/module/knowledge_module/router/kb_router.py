@@ -1,11 +1,11 @@
 from typing import Optional
 
+from canary_framework import Context
+from canary_framework.web.fastapi import router, get, post, put, delete
 from fastapi import Depends, Query
 
 from app.common.depends import get_current_user
 from app.module.knowledge_module.schema import CreateKbRequest, UpdateKbRequest
-from canary_framework import Context
-from canary_framework.web.fastapi import router, get, post, put, delete
 
 
 @router(prefix="/api/v1/knowledge-bases")
@@ -41,7 +41,7 @@ class KbRouter:
         return await self.svc.get_shared_kb(share_token)
 
     @get("/me/storage", tags=["知识库"], summary="用户空间统计",
-          description="统计当前用户作为创建者的所有知识库文件大小")
+         description="统计当前用户作为创建者的所有知识库文件大小")
     async def get_storage(self, user=Depends(get_current_user)):
         return await self.svc.get_user_storage(user)
 
@@ -57,7 +57,8 @@ class KbRouter:
     async def delete(self, kb_id: str, user=Depends(get_current_user)):
         return await self.svc.delete_kb(kb_id, user)
 
-    @post("/{kb_id}/share-link", tags=["知识库"], summary="生成分享链接", description="仅 shared 权限知识库且创建者可操作")
+    @post("/{kb_id}/share-link", tags=["知识库"], summary="生成分享链接",
+          description="仅 shared 权限知识库且创建者可操作")
     async def create_share_link(self, kb_id: str, user=Depends(get_current_user)):
         return await self.svc.create_share_link(kb_id, user)
 

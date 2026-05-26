@@ -1,5 +1,8 @@
 import asyncio
 
+from canary_framework import module, config
+from canary_framework.web.fastapi import web, get, WebCanary
+
 from app.module.chat_module.module import ChatModule
 from app.module.collection_module.module import CollectionModule
 from app.module.db_module.module import DBModule
@@ -8,10 +11,7 @@ from app.module.knowledge_module.module import KnowledgeModule
 from app.shared.aliyun.module import AliyunModule
 from app.shared.embedding.embedding_service import EmbeddingService
 from app.shared.llm.client import LLMClient
-from app.shared.parse.parse_service import ParseService
 from app.shared.pigx.module import PigXModule
-from canary_framework import module, config
-from canary_framework.web.fastapi import web, get, WebCanary
 
 
 @config

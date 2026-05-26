@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
+from canary_framework import service, on_init, on_start, on_end, Context
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from app.module.db_module.config import DBConfig
@@ -11,7 +12,6 @@ from app.module.db_module.repository.kb_repo import KbRepo
 from app.module.db_module.repository.member_repo import MemberRepo
 from app.module.db_module.repository.message_repo import MessageRepo
 from app.module.db_module.repository.session_repo import SessionRepo
-from canary_framework import service, on_init, on_start, on_end, Context
 
 logger = logging.getLogger(__name__)
 

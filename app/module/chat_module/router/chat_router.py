@@ -1,9 +1,9 @@
+from canary_framework import Context
+from canary_framework.web.fastapi import router, post
 from fastapi import Depends
 
 from app.common.depends import get_current_user
 from app.module.chat_module.schema import ChatCompletionRequest
-from canary_framework import Context
-from canary_framework.web.fastapi import router, post
 
 
 @router(prefix="/v1")

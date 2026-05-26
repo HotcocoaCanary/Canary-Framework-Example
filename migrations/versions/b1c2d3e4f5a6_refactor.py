@@ -7,11 +7,9 @@ Create Date: 2026-05-26 10:00:00.000000
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 import sqlmodel
-import pgvector
-
+from alembic import op
 
 revision: str = 'b1c2d3e4f5a6'
 down_revision: Union[str, Sequence[str], None] = 'a27a6902544b'
@@ -54,18 +52,18 @@ def upgrade() -> None:
 
     # 9. Create collection_items table
     op.create_table('collection_items',
-        sa.Column('id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
-        sa.Column('user_id', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
-        sa.Column('url', sa.Text(), nullable=False),
-        sa.Column('title', sqlmodel.sql.sqltypes.AutoString(length=500), nullable=True),
-        sa.Column('content', sa.Text(), nullable=True),
-        sa.Column('status', sqlmodel.sql.sqltypes.AutoString(length=20), nullable=False,
-                  server_default='pending'),
-        sa.Column('is_imported', sa.Boolean(), nullable=False, server_default=sa.text('false')),
-        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-        sa.PrimaryKeyConstraint('id')
-    )
+                    sa.Column('id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
+                    sa.Column('user_id', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+                    sa.Column('url', sa.Text(), nullable=False),
+                    sa.Column('title', sqlmodel.sql.sqltypes.AutoString(length=500), nullable=True),
+                    sa.Column('content', sa.Text(), nullable=True),
+                    sa.Column('status', sqlmodel.sql.sqltypes.AutoString(length=20), nullable=False,
+                              server_default='pending'),
+                    sa.Column('is_imported', sa.Boolean(), nullable=False, server_default=sa.text('false')),
+                    sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+                    sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+                    sa.PrimaryKeyConstraint('id')
+                    )
     op.create_index('idx_ci_user', 'collection_items', ['user_id', sa.text('created_at DESC')])
     op.create_index('idx_ci_status', 'collection_items', ['status'])
     op.create_index('idx_ci_imported', 'collection_items', ['user_id', 'is_imported'])
@@ -91,7 +89,8 @@ def downgrade() -> None:
     op.drop_column('kb_files', 'status')
 
     # 5. Re-add oss_key and full_path
-    op.add_column('kb_files', sa.Column('full_path', sqlmodel.sql.sqltypes.AutoString(length=1000), nullable=False, server_default=''))
+    op.add_column('kb_files', sa.Column('full_path', sqlmodel.sql.sqltypes.AutoString(length=1000), nullable=False,
+                                        server_default=''))
     op.add_column('kb_files', sa.Column('oss_key', sqlmodel.sql.sqltypes.AutoString(length=1000), nullable=True))
 
     # 4. Rename columns back
@@ -105,23 +104,23 @@ def downgrade() -> None:
 
     # 2. Re-create kb_file_records table
     op.create_table('kb_file_records',
-        sa.Column('file_id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
-        sa.Column('status', sqlmodel.sql.sqltypes.AutoString(length=20), nullable=False),
-        sa.Column('parsed_text', sa.Text(), nullable=True),
-        sa.Column('error_msg', sa.Text(), nullable=True),
-        sa.Column('parse_task_id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint('file_id')
-    )
+                    sa.Column('file_id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
+                    sa.Column('status', sqlmodel.sql.sqltypes.AutoString(length=20), nullable=False),
+                    sa.Column('parsed_text', sa.Text(), nullable=True),
+                    sa.Column('error_msg', sa.Text(), nullable=True),
+                    sa.Column('parse_task_id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=True),
+                    sa.Column('created_at', sa.DateTime(), nullable=False),
+                    sa.Column('updated_at', sa.DateTime(), nullable=False),
+                    sa.PrimaryKeyConstraint('file_id')
+                    )
 
     # 1. Re-create parse_tasks table
     op.create_table('parse_tasks',
-        sa.Column('id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
-        sa.Column('kb_id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
-        sa.Column('created_by', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
-    )
+                    sa.Column('id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
+                    sa.Column('kb_id', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
+                    sa.Column('created_by', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+                    sa.Column('created_at', sa.DateTime(), nullable=False),
+                    sa.Column('updated_at', sa.DateTime(), nullable=False),
+                    sa.PrimaryKeyConstraint('id')
+                    )
     op.create_index(op.f('ix_parse_tasks_kb_id'), 'parse_tasks', ['kb_id'], unique=False)
