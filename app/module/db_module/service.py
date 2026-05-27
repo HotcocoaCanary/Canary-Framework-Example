@@ -1,11 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 
-from canary_framework import service, on_init, on_start, on_end, Context
+from canary_framework import service, on_config, on_start, on_end
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.module.db_module.config import DBConfig
 from app.module.db_module.repository.chunk_repo import ChunkRepo
 from app.module.db_module.repository.collection_repo import CollectionRepo
 from app.module.db_module.repository.file_repo import FileRepo
@@ -19,11 +18,10 @@ logger = logging.getLogger(__name__)
 
 @service(name="DBService")
 class DBService:
-    @on_init
-    async def init(self, ctx: Context):
-        self._cfg = ctx.get_config(DBConfig)
+    @on_config
+    def setup(self):
         self._engine = create_async_engine(
-            self._cfg.database_url,
+            self.database_url,
             echo=False,
             pool_size=20,
             max_overflow=10,

@@ -4,7 +4,7 @@ import threading
 import uuid
 from queue import Queue
 
-from canary_framework import service, on_init, on_start, on_end, Context, config
+from canary_framework import service, on_config, on_start, on_end
 
 from app.module.db_module.models import KbChunk
 from app.module.db_module.service import DBService
@@ -13,22 +13,13 @@ from app.shared.llm.client import LLMClient
 logger = logging.getLogger(__name__)
 
 
-@config
-class EmbeddingConfig:
-    chunk_size: int = 512
-    chunk_overlap: int = 64
-
-
-@service(name="EmbeddingService", deps=[DBService, LLMClient], config=EmbeddingConfig)
+@service(name="EmbeddingService", deps=[DBService, LLMClient])
 class EmbeddingService:
-    @on_init
-    def init(self, ctx: Context):
+    @on_config
+    def setup(self):
         self._queue: Queue = Queue()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        cfg = ctx.get_config(EmbeddingConfig)
-        self._chunk_size = cfg.chunk_size
-        self._chunk_overlap = cfg.chunk_overlap
         self._running = True
 
     @on_start
@@ -162,10 +153,10 @@ class EmbeddingService:
         start = 0
         index = 0
         while start < total:
-            end = min(start + self._chunk_size, total)
+            end = min(start + self.chunk_size, total)
             chunk_text = "".join(words[start:end])
             chunks.append({"content": chunk_text, "index": index})
-            start = end - self._chunk_overlap
+            start = end - self.chunk_overlap
             index += 1
             if start <= 0:
                 start = 1

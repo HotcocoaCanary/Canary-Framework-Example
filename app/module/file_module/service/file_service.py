@@ -4,8 +4,7 @@ import threading
 import uuid
 from queue import Queue
 
-from canary_framework import service, on_init, on_start, on_end, Context
-from canary_framework.web.fastapi import web
+from canary_framework import service, on_config, on_start, on_end
 from fastapi import HTTPException
 
 from app.common.response import R
@@ -19,17 +18,15 @@ from app.shared.parse.parse_service import ParseService
 logger = logging.getLogger(__name__)
 
 
-@web()
-@service(name="FileService", deps=[DBService, OSSClient])
+@service(name="FileService", deps=[DBService, OSSClient, EmbeddingService])
 class FileService:
-    @on_init
-    def init(self, ctx: Context):
+    @on_config
+    def setup(self):
         self._queue: Queue = Queue()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = True
         self._parse_svc = ParseService()
-        self._embed_svc = ctx.get_service(EmbeddingService)
 
     @on_start
     async def start(self):
@@ -80,7 +77,7 @@ class FileService:
                 f.status = "parsed"
                 await file_repo.update(f)
 
-            self._embed_svc.submit({"file_id": file_id, "kb_id": kb_id})
+            self.embedding_service.submit({"file_id": file_id, "kb_id": kb_id})
             logger.info(f"Parse completed: file_id={file_id}")
         except Exception as e:
             logger.error(f"File processing failed: file_id={file_id}, error={e}")

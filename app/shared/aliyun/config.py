@@ -1,8 +1,9 @@
-from canary_framework import config
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-@config
-class AliyunConfig:
+class AliyunConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
     oss_endpoint: str = ""
     oss_region: str = ""
     oss_bucket: str = ""

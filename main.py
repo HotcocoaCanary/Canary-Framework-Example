@@ -1,7 +1,8 @@
 import asyncio
 
-from canary_framework import module, config
-from canary_framework.web.fastapi import web, get, WebCanary
+from canary_framework import module
+from canary_framework.web.fastapi import get, WebCanary
+from config import AppConfig
 
 from app.module.chat_module.module import ChatModule
 from app.module.collection_module.module import CollectionModule
@@ -14,19 +15,8 @@ from app.shared.llm.client import LLMClient
 from app.shared.pigx.module import PigXModule
 
 
-@config
-class AppConfig:
-    uvicorn_host: str = "0.0.0.0"
-    uvicorn_port: int = 8000
-    fastapi_title: str = "Canary-Agent"
-    fastapi_version: str = "0.1.0"
-    fastapi_description: str = "基于 Canary Framework + LangGraph 的 AI 平台"
-
-
-@web()
 @module(
     name="AppModule",
-    config=AppConfig,
     services=[
         DBModule,
         PigXModule,
@@ -47,6 +37,7 @@ class AppModule:
 
 async def main():
     app = WebCanary(AppModule)
+    await app.config(config=AppConfig())
     await app.init()
     await app.start()
 

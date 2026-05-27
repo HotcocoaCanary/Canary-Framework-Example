@@ -2,31 +2,18 @@ import logging
 from typing import AsyncIterator
 
 import litellm
-from canary_framework import service, on_init, Context, config
+from canary_framework import service, on_config
 
 logger = logging.getLogger(__name__)
 
 
-@config
-class LLMConfig:
-    litellm_api_base: str = ""
-    litellm_port: int = 0
-    litellm_api_key: str = ""
-    embedding_model: str = "qwen-embedding"
-
-    @property
-    def litellm_url(self) -> str:
-        return f"{self.litellm_api_base}:{self.litellm_port}"
-
-
-@service(name="LLMClient", config=LLMConfig)
+@service(name="LLMClient")
 class LLMClient:
-    @on_init
-    def init(self, ctx: Context):
-        cfg = ctx.get_config(LLMConfig)
-        self._api_base = cfg.litellm_url
-        self._api_key = cfg.litellm_api_key
-        self._embedding_model = cfg.embedding_model
+    @on_config
+    def setup(self):
+        self._api_base = self.litellm_url
+        self._api_key = self.litellm_api_key
+        self._embedding_model = self.embedding_model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         response = await litellm.aembedding(

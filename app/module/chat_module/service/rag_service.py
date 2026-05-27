@@ -2,14 +2,12 @@ import json
 import logging
 import uuid
 
-from canary_framework import service, on_init, Context
-from canary_framework.web.fastapi import web
+from canary_framework import service, on_config
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.agent import RAGState, build_rag_graph
 from app.common.types import UserContext
-from app.module.chat_module.router.chat_router import ChatRouter
 from app.module.chat_module.schema import ChatCompletionRequest
 from app.module.db_module.models import Session, Message
 from app.module.db_module.service import DBService
@@ -18,11 +16,10 @@ from app.shared.llm.client import LLMClient
 logger = logging.getLogger(__name__)
 
 
-@web(routers=[ChatRouter])
 @service(name="RAGService", deps=[DBService, LLMClient])
 class RAGService:
-    @on_init
-    def init(self, ctx: Context):
+    @on_config
+    def setup(self):
         pass
 
     async def chat_completions(self, user: UserContext, req: ChatCompletionRequest):

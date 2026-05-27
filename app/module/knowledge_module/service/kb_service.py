@@ -3,15 +3,13 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from canary_framework import service, on_init, Context
-from canary_framework.web.fastapi import web
+from canary_framework import service, on_config
 from fastapi import HTTPException
 
 from app.common.response import R
 from app.common.types import UserContext
 from app.module.db_module.models import KnowledgeBase, KbMember
 from app.module.db_module.service import DBService
-from app.module.knowledge_module.router.kb_router import KbRouter
 from app.module.knowledge_module.schema import (
     CreateKbRequest,
     UpdateKbRequest,
@@ -22,11 +20,10 @@ from app.module.knowledge_module.schema import (
 logger = logging.getLogger(__name__)
 
 
-@web(routers=[KbRouter])
 @service(name="KbService", deps=[DBService])
 class KbService:
-    @on_init
-    def init(self, ctx: Context):
+    @on_config
+    def setup(self):
         pass
 
     def _kb_to_response(self, kb: KnowledgeBase, file_count: int = 0, total_size: int = 0) -> KbResponse:

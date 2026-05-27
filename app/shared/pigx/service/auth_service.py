@@ -1,20 +1,19 @@
 import logging
 
 import httpx
-from canary_framework import service, on_init, on_end, Context
+from canary_framework import service, on_config, on_end
 from fastapi import HTTPException
 
 from app.common.types import UserContext
-from app.shared.pigx.config import PigXConfig
 
 logger = logging.getLogger(__name__)
 
 
 @service(name="AuthService")
 class AuthService:
-    @on_init
-    def init(self, ctx: Context):
-        self._base_url: str = ctx.get_config(PigXConfig).pigx_base
+    @on_config
+    def setup(self):
+        self._base_url: str = self.pigx_base
         self._http_client = httpx.AsyncClient(timeout=10.0)
 
     @on_end

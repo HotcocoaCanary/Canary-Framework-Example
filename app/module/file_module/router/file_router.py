@@ -1,15 +1,13 @@
-from canary_framework import Context
 from canary_framework.web.fastapi import router, get, post, delete
 from fastapi import Depends, Query, Request
 
 from app.common.depends import get_current_user
+from app.module.file_module.service.file_service import FileService
 
 
-@router(prefix="/api/v1/kb")
+@router(prefix="/api/v1/kb", deps=[FileService])
 class FileRouter:
-    def __init__(self, ctx: Context):
-        from app.module.file_module.service.file_service import FileService
-        self.svc = ctx.resolve(FileService)
+    file_service: FileService
 
     @post("/{kb_id}/files/{folder_path:path}/", tags=["文件管理"],
           summary="上传文件 / 创建文件夹",
@@ -32,12 +30,12 @@ class FileRouter:
                 if hasattr(f, "filename") and hasattr(f, "file"):
                     data = await f.read()
                     files.append((f.filename, data, f.content_type or "application/octet-stream"))
-            return await self.svc.upload_files(kb_id, folder_path, user, files)
+            return await self.file_service.upload_files(kb_id, folder_path, user, files)
 
         elif "application/json" in content_type:
             body = await request.json()
             name = body.get("name", "")
-            return await self.svc.create_folder(kb_id, folder_path, user, name)
+            return await self.file_service.create_folder(kb_id, folder_path, user, name)
 
         else:
             from fastapi import HTTPException
@@ -53,7 +51,7 @@ class FileRouter:
             user=Depends(get_current_user),
     ):
         folder_path = "/" + folder_path if folder_path else "/"
-        return await self.svc.list_nodes(kb_id, folder_path, user, current, size)
+        return await self.file_service.list_nodes(kb_id, folder_path, user, current, size)
 
     @get("/{kb_id}/files/{folder_path:path}/{file_name}/detail", tags=["文件管理"], summary="文件详情")
     async def get_file_detail(
@@ -64,7 +62,7 @@ class FileRouter:
             user=Depends(get_current_user),
     ):
         folder_path = "/" + folder_path if folder_path else "/"
-        return await self.svc.get_file_detail(kb_id, folder_path, file_name, user)
+        return await self.file_service.get_file_detail(kb_id, folder_path, file_name, user)
 
     @delete("/{kb_id}/files/{folder_path:path}/{file_name}", tags=["文件管理"], summary="删除文件/文件夹")
     async def delete_node(
@@ -75,4 +73,4 @@ class FileRouter:
             user=Depends(get_current_user),
     ):
         folder_path = "/" + folder_path if folder_path else "/"
-        return await self.svc.delete_node(kb_id, folder_path, file_name, user)
+        return await self.file_service.delete_node(kb_id, folder_path, file_name, user)

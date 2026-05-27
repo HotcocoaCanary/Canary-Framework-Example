@@ -1,8 +1,7 @@
 import logging
 import uuid
 
-from canary_framework import service, on_init, Context
-from canary_framework.web.fastapi import web
+from canary_framework import service, on_config
 from fastapi import HTTPException
 
 from app.common.response import R
@@ -15,11 +14,10 @@ from app.shared.parse.parse_service import ParseService
 logger = logging.getLogger(__name__)
 
 
-@web()
 @service(name="CollectionService", deps=[DBService, EmbeddingService])
 class CollectionService:
-    @on_init
-    def init(self, ctx: Context):
+    @on_config
+    def setup(self):
         self._parse_svc = ParseService()
 
     async def submit(self, user: UserContext, url: str) -> R[dict]:

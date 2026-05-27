@@ -1,23 +1,20 @@
 import logging
 
 import oss2
-from canary_framework import service, on_init, Context
-
-from app.shared.aliyun.config import AliyunConfig
+from canary_framework import service, on_config
 
 logger = logging.getLogger(__name__)
 
 
 @service(name="OSSClient")
 class OSSClient:
-    @on_init
-    def init(self, ctx: Context):
-        cfg = ctx.get_config(AliyunConfig)
-        self._endpoint = cfg.oss_endpoint
-        self._region = cfg.oss_region
-        self._bucket_name = cfg.oss_bucket
-        auth = oss2.Auth(cfg.oss_access_key, cfg.oss_secret_key)
-        self._bucket = oss2.Bucket(auth, cfg.oss_endpoint, cfg.oss_bucket)
+    @on_config
+    def setup(self):
+        self._endpoint = self.oss_endpoint
+        self._region = self.oss_region
+        self._bucket_name = self.oss_bucket
+        auth = oss2.Auth(self.oss_access_key, self.oss_secret_key)
+        self._bucket = oss2.Bucket(auth, self.oss_endpoint, self.oss_bucket)
 
     @property
     def bucket(self) -> oss2.Bucket:
