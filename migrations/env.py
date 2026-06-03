@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.module.db_module.models import *  # noqa: F401, F403
+from src.module.db_module.models import *  # noqa: F401, F403
 
 config = context.config
 
