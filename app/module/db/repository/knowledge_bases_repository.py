@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any, Sequence, Optional
 from zoneinfo import ZoneInfo
 
 from canary_framework import after_config, after_init
 from canary_framework.decorators import service
-from sqlalchemy import create_engine
-from sqlmodel import Session, select
+from sqlalchemy import create_engine, or_
+from sqlmodel import Session, select, and_
 
 from app.config import AppConfig
 from app.module.db.models import KnowledgeBase
@@ -34,9 +34,9 @@ class KnowledgeBaseRepository:
 
     @staticmethod
     def generate_id() -> str:
-        return "kb_" + uuid.uuid4().hex  # 32 位字符串
+        return "kb_" + uuid.uuid4().hex[:20]
 
-    def create_knowledge_base(self, name: str, created_by: str, description: str = "",
+    def create_knowledge_base(self, name: str, created_by: str, description: Optional[str] = None,
                               permission: str = "private") -> KnowledgeBase:
         with self.get_session() as session:
             kb = KnowledgeBase(
@@ -45,8 +45,8 @@ class KnowledgeBaseRepository:
                 description=description,
                 permission=permission,
                 created_by=created_by,
-                created_at=datetime.now(ZoneInfo("Asia/Shanghai")),
-                updated_at=datetime.now(ZoneInfo("Asia/Shanghai")),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
             session.add(kb)
             session.commit()
@@ -65,7 +65,7 @@ class KnowledgeBaseRepository:
             for key, value in kwargs.items():
                 if hasattr(kb, key) and key not in ["id", "created_at", "created_by"]:
                     setattr(kb, key, value)
-            kb.updated_at = datetime.now(ZoneInfo("Asia/Shanghai"))
+            kb.updated_at = datetime.utcnow()
             session.add(kb)
             session.commit()
             session.refresh(kb)
@@ -82,5 +82,24 @@ class KnowledgeBaseRepository:
 
     def list_knowledge_bases(self, created_by: str, skip: int = 0, limit: int = 100) -> Sequence[Any]:
         with self.get_session() as session:
-            statement = select(KnowledgeBase).where(KnowledgeBase.created_by == created_by).offset(skip).limit(limit)
+            statement = select(KnowledgeBase).where(KnowledgeBase.created_by == created_by).order_by(KnowledgeBase.updated_at.desc()).offset(skip).limit(limit)
             return session.exec(statement).all()
+
+    def list_public_knowledge_bases(self, keyword: Optional[str] = None, skip: int = 0, limit: int = 100) -> tuple[Sequence[Any], int]:
+        with self.get_session() as session:
+            statement = select(KnowledgeBase).where(KnowledgeBase.permission == "shared")
+            if keyword:
+                statement = statement.where(or_(KnowledgeBase.name.contains(keyword), KnowledgeBase.description.contains(keyword)))
+            
+            count_statement = select(KnowledgeBase).where(KnowledgeBase.permission == "shared")
+            if keyword:
+                count_statement = count_statement.where(or_(KnowledgeBase.name.contains(keyword), KnowledgeBase.description.contains(keyword)))
+            
+            total = len(session.exec(count_statement).all())
+            statement = statement.order_by(KnowledgeBase.updated_at.desc()).offset(skip).limit(limit)
+            return session.exec(statement).all(), total
+
+    def get_knowledge_base_by_share_token(self, share_token: str) -> type[KnowledgeBase] | None:
+        with self.get_session() as session:
+            statement = select(KnowledgeBase).where(KnowledgeBase.share_token == share_token)
+            return session.exec(statement).first()

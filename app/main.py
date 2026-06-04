@@ -3,13 +3,17 @@ import asyncio
 import uvicorn
 from canary_framework import module
 
-from app.module.db.module import DBModule
+from app.module.collection.router import CollRouter
+from app.module.file.router import FileRouter
+from app.module.kb.router import KBRouter
 from config import AppConfig
 
 
 @module(
     services=[
-        DBModule
+        FileRouter,
+        KBRouter,
+        CollRouter
     ],
 )
 class AppModule:

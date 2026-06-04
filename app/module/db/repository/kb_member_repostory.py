@@ -67,7 +67,24 @@ class KBMemberRepository:
             session.commit()
             return True
 
+    def remove_members_by_kb(self, kb_id: str) -> int:
+        with self.get_session() as session:
+            statement = select(KbMember).where(KbMember.kb_id == kb_id)
+            members = session.exec(statement).all()
+            count = 0
+            for member in members:
+                session.delete(member)
+                count += 1
+            session.commit()
+            return count
+
     def list_kb_members(self, kb_id: str) -> Sequence[Any]:
         with self.get_session() as session:
             statement = select(KbMember).where(KbMember.kb_id == kb_id)
             return session.exec(statement).all()
+
+    def list_user_kbs(self, user_id: str) -> Sequence[str]:
+        with self.get_session() as session:
+            statement = select(KbMember).where(KbMember.user_id == user_id)
+            members = session.exec(statement).all()
+            return [m.kb_id for m in members]

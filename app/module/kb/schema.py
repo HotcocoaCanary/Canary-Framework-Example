@@ -22,7 +22,18 @@ class KbResponse(BaseModel):
     file_count: int = Field(default=0, description="文件数量")
     total_size: int = Field(default=0, description="总大小 (bytes)")
 
+
 class UpdateKbRequest(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200, description="知识库名称")
     description: Optional[str] = Field(default=None, description="描述")
     permission: Optional[str] = Field(default=None, description="权限: private / shared")
+
+
+class ShareLinkResponse(BaseModel):
+    share_url: str = Field(description="分享链接")
+    share_token: Optional[str] = Field(default=None, description="分享 token")
+
+
+class StorageResponse(BaseModel):
+    used_bytes: int = Field(description="已用存储空间 (bytes)")
+    used_formatted: str = Field(description="已用存储空间 (格式化)")

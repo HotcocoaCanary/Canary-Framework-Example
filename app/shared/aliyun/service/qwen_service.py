@@ -8,7 +8,6 @@ from app.config import AppConfig
 @service()
 class QwenService:
     config: AppConfig
-    config: AppConfig
 
     def __init__(self):
         self.client = None
