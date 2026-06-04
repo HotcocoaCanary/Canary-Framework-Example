@@ -8,7 +8,7 @@ from app.module.kb.service import KbService
 
 @router(prefix='/kb', tags=["kb"])
 class KBRouter:
-    kb: KbService
+    kb_service: KbService
 
     @post(
         path='/',
@@ -24,7 +24,7 @@ class KBRouter:
         }
     )
     def create(self, request: CreateKbRequest):
-        success, result = self.kb.create_kb(request)
+        success, result = self.kb_service.create_kb(request)
         return R.ok(result) if success else R.fail(result)
 
     @get(
