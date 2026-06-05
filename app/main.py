@@ -1,33 +1,51 @@
 import asyncio
 
 import uvicorn
-from canary_framework import module
+from canary_framework import module, after_init
+from canary_framework.core.module import ModuleBase
 
-from app.module.collection.router import CollRouter
-from app.module.file.router import FileRouter
+from app.config import AppConfig, load_env
+from app.module.db.module import DBModule
+from app.shared.aliyun.module import AliyunModule
+from app.module.kb.service import KbService
 from app.module.kb.router import KBRouter
-from config import AppConfig
+from app.module.file.service import FileService
+from app.module.file.router import FileRouter
+from app.module.collection.service import CollService
+from app.module.collection.router import CollRouter
 
 
 @module(
     services=[
-        FileRouter,
+        AppConfig,
+        DBModule,
+        AliyunModule,
+        KbService,
+        FileService,
+        CollService,
         KBRouter,
-        CollRouter
+        FileRouter,
+        CollRouter,
     ],
 )
-class AppModule:
-    pass
+class AppModule(ModuleBase):
+    config: AppConfig
+
+    @after_init
+    def _bind_config(self):
+        self.config = self.AppConfig
+        if self._cf_registry is not None:
+            self._cf_registry._cf_docs_registered = False
 
 
 async def setup():
-    cfg = AppConfig()
+    load_env()
     app = AppModule()
-    await app.configure(cfg)
     await app.init()
-    return app, cfg
+    return app
 
 
 if __name__ == "__main__":
-    app, cfg = asyncio.run(setup())
+    app = asyncio.run(setup())
+    cfg = app.config
     uvicorn.run(app, host=cfg.host, port=cfg.port, lifespan="on")

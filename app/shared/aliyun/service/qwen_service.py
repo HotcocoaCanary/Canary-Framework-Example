@@ -1,25 +1,23 @@
 from canary_framework import after_init
-from canary_framework.decorators import service
+from canary_framework import service
+from canary_framework.core.service import ServiceBase
 from openai import OpenAI
 
 from app.config import AppConfig
 
 
 @service()
-class QwenService:
+class QwenService(ServiceBase):
     config: AppConfig
 
     def __init__(self):
+        super().__init__()
         self.client = None
 
     @after_init
-    def init(self):
+    def _setup_client(self):
         self.client = OpenAI(
-            # 若没有配置环境变量，请用百炼API Key将下行替换为：api_key="sk-xxx"
-            # 各地域的API Key不同。获取API Key：https://help.aliyun.com/zh/model-studio/get-api-key
             api_key=self.config.DASHSCOPE_API_KEY,
-            # 以下为北京地域的 base_url，若使用弗吉尼亚地域模型，需要将base_url换成https://dashscope-us.aliyuncs.com/compatible-mode/v1
-            # 若使用新加坡地域的模型，需将base_url替换为：https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
             base_url=self.config.DASHSCOPE_API_BASE
         )
 

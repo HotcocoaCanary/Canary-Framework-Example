@@ -1,70 +1,68 @@
 # 服务
 
-服务是 Canary 框架应用程序的构建块。它们封装业务逻辑，可以组合在一起形成复杂的系统。
+服务是 Canary Framework 应用程序的构建块。它们封装业务逻辑，可以组合在一起形成复杂的系统。
 
 ## 定义服务
 
-使用 `@service` 装饰器定义服务：
+使用 `@service()` 装饰器定义服务：
 
 ```python
 from canary_framework import service
+from canary_framework.core.service import ServiceBase
 
-@service(name="user_repository")
-class UserRepository:
+@service()
+class UserRepository(ServiceBase):
     def __init__(self):
         self.users = []
-    
+
     async def get_all(self):
         return self.users
-    
+
     async def add(self, user):
         self.users.append(user)
         return user
 ```
 
-### 服务参数
+- 服务自动命名为 `ClassName` + `"Service"` — 例如 `UserRepository` → `UserRepositoryService`
+- 名称从类名自动生成
 
-- `name`：（必需）服务的唯一标识符
-- `deps`：（可选）此服务依赖的服务类列表
+## 声明依赖
 
-## 服务依赖
-
-服务可以依赖于其他服务。使用 `deps` 参数声明依赖：
+依赖通过 Python 类型注解声明，而非 `deps` 列表：
 
 ```python
-@service(name="database")
-class DatabaseService:
+@service()
+class Database(ServiceBase):
     pass
 
-@service(name="user_service", deps=[DatabaseService])
-class UserService:
+@service()
+class UserRepo(ServiceBase):
+    db: Database  # 通过注解声明 — 自动注入
+
     async def get_user(self, user_id):
-        # 数据库服务自动注入为 self.database_service
-        return await self.database_service.query(...)
+        return await self.db.query(...)
 ```
 
-依赖项以 snake_case 格式自动注入为属性：
-- `DatabaseService` → `self.database_service`
-- `UserRepository` → `self.user_repository`
+- 注解由 `resolve_deps()` 解析 — 仅标记了 `CF_SERVICE_MARKER` 的类型被视为依赖
+- 注入的实例设置在注解键名上（如 `self.db` 对应 `db: Database`）
+- **您控制属性名** — 使用任何有效的 Python 标识符：`db`、`cache`、`repo` 等
 
 ## 服务生命周期
 
-服务经过明确定义的生命周期：
+服务经历明确定义的生命周期：
 
 1. **实例化**：创建服务实例
-2. **配置**：调用 `configure()` 方法
-3. **初始化**：调用 `init()` 方法
-4. **启动**：调用 `startup()` 方法
-5. **关闭**：调用 `shutdown()` 方法（应用停止时）
+2. **初始化**：调用 `init()`；运行 `@after_init` 钩子
+3. **启动**：调用 `startup()`；之前运行 `@before_startup` 钩子
+4. **关闭**：运行 `@before_shutdown` 钩子，然后调用 `shutdown()`
 
-您可以使用生命周期钩子进入这些阶段。有关详细信息，请参阅[生命周期](./lifecycle.md)文档。
+您可以使用生命周期装饰器介入这些阶段。有关详细信息，请参阅[生命周期](./lifecycle.md)文档。
 
 ## 服务基类
 
-当您用 `@service` 装饰一个类时，它会自动继承自 `ServiceBase`，该类提供：
+使用 `@service()` 装饰的类必须显式继承 `ServiceBase`，该类提供：
 
-- `config` 属性：访问配置阶段传递的配置
-- `configure(config)` 方法：配置服务
+- `config` 属性：访问通过 DI 注入的配置
 - `init()` 方法：初始化服务
 - `startup()` 方法：启动服务
 - `shutdown()` 方法：关闭服务
@@ -72,44 +70,53 @@ class UserService:
 ## 完整示例
 
 ```python
-from canary_framework import service, after_config, after_init, before_startup, before_shutdown
+from canary_framework import service, after_init, before_startup, before_shutdown
+from canary_framework.core.service import ServiceBase
 
-@service(name="cache")
-class CacheService:
+@service()
+class Cache(ServiceBase):
     def __init__(self):
-        self.cache = {}
+        self.store = {}
         self.connection = None
-    
-    @after_config
+
+    @after_init
     async def connect(self):
-        # 连接到缓存服务器
         self.connection = "connected"
         print("Cache connected")
-    
+
     @after_init
     async def warmup(self):
-        # 用常用数据预热缓存
-        self.cache["default"] = {"value": "default"}
+        self.store["default"] = {"value": "default"}
         print("Cache warmed up")
-    
+
     @before_startup
     async def verify(self):
-        # 验证缓存已准备就绪
         assert self.connection is not None
         print("Cache verified")
-    
+
     @before_shutdown
     async def cleanup(self):
-        # 清理资源
         self.connection = None
         print("Cache disconnected")
-    
+
     async def get(self, key):
-        return self.cache.get(key)
-    
+        return self.store.get(key)
+
     async def set(self, key, value):
-        self.cache[key] = value
+        self.store[key] = value
 ```
+
+## 服务命名
+
+服务名称从类名自动派生：
+
+| 类名 | 服务名称（自动） |
+|------------|---------------------|
+| `Database` | `DatabaseService` |
+| `UserRepository` | `UserRepositoryService` |
+| `Cache` | `CacheService` |
+
+此名称在内部用于注册表查找。在大多数代码中，您通过类来引用服务。
 
 ## 测试服务
 
@@ -119,32 +126,22 @@ class CacheService:
 import pytest
 
 @pytest.mark.asyncio
-async def test_cache_service():
-    service = CacheService()
-    await service.configure()
-    await service.init()
-    await service.startup()
-    
-    await service.set("key", "value")
-    assert await service.get("key") == "value"
-    
-    await service.shutdown()
+async def test_cache():
+    svc = Cache()
+    await svc.init()
+    await svc.startup()
+
+    await svc.set("key", "value")
+    assert await svc.get("key") == "value"
+
+    await svc.shutdown()
 ```
-
-## 服务命名
-
-服务名称在模块内必须唯一。框架会自动将类名转换为 snake_case 格式作为注入属性名：
-
-| 类名 | 注入属性名 |
-|------|------------|
-| `DatabaseService` | `self.database_service` |
-| `UserRepository` | `self.user_repository` |
-| `APIRouter` | `self.api_router` |
 
 ## 最佳实践
 
-1. **单一职责**：每个服务应该只负责一件事
-2. **无状态设计**：尽量使服务无状态，或明确管理状态
+1. **单一职责**：每个服务应该只做好一件事
+2. **无状态设计**：优先使用无状态服务，或显式管理状态
 3. **依赖最小化**：只声明真正需要的依赖
-4. **类型提示**：使用类型提示提高代码可读性和 IDE 支持
+4. **类型注解**：使用类型提示清晰地声明依赖
 5. **测试覆盖**：为每个服务编写单元测试
+6. **有意义的注解名称**：为依赖属性选择有描述性的名称（如 `db` 而非 `d`）

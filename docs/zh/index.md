@@ -4,10 +4,11 @@ Canary Framework 是一个轻量级、装饰器驱动的 Python 异步服务框�
 
 ## 核心特性
 
-- **装饰器驱动**：使用简单的装饰器来定义服务、模块和路由
-- **依赖注入**：内置的 DI 容器，自动解析依赖
+- **装饰器驱动**：使用简洁的装饰器定义服务、模块和路由 — 无需样板代码
+- **注解驱动依赖注入**：通过 Python 类型注解声明依赖 — 无需 `deps` 列表
+- **自动命名**：服务、模块和路由的名称从类名自动派生
 - **生命周期管理**：完整的服务和模块生命周期钩子
-- **ASGI 兼容**：基于 Starlette 构建，提供高性能的异步 Web 应用
+- **ASGI 兼容**：基于 Starlette 构建，提供高性能异步 Web 应用
 - **模块化架构**：通过可重用的模块组合您的应用
 - **OpenAPI 支持**：自动生成 Swagger UI 和 ReDoc 文档
 
@@ -19,50 +20,53 @@ pip install canary-framework
 
 ## 快速开始
 
-以下是一个简单的入门示例：
+以下是一个最简示例，帮助您快速上手：
 
 ```python
 from canary_framework import module, router, get, post
+from canary_framework.core.service import ServiceBase
+from canary_framework.core.module import ModuleBase
+from canary_framework.core.router import RouterBase
 
-@router(name="api")
-class ApiRouter:
+@router(prefix="")
+class Api(RouterBase):
     @get("/hello")
-    async def hello(self, request):
+    async def hello(self):
         return {"message": "Hello, Canary!"}
-    
-    @post("/echo")
-    async def echo(self, request):
-        data = await request.json()
-        return {"echo": data}
 
-@module(name="app", services=[ApiRouter])
-class AppModule:
+    @post("/echo")
+    async def echo(self, body: dict):
+        return {"echo": body}
+
+@module(services=[Api])
+class App(ModuleBase):
     pass
 
 # 使用 uvicorn 运行
-# uvicorn main:AppModule --reload
+# uvicorn main:App --reload
 ```
 
 ## OpenAPI 文档
 
 启动应用后，可以访问以下端点：
 
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
-- **OpenAPI JSON**: `http://localhost:8000/openapi.json`
+- **Swagger UI**：`http://localhost:8000/docs`
+- **ReDoc**：`http://localhost:8000/redoc`
+- **OpenAPI JSON**：`http://localhost:8000/openapi.json`
 
 ## 核心概念
 
 ### 服务 (Service)
 
-服务是应用的基本构建块，封装业务逻辑：
+服务是应用的构建块，封装业务逻辑：
 
 ```python
-from canary_framework import service, after_config
+from canary_framework import service, after_init, before_shutdown
+from canary_framework.core.service import ServiceBase
 
-@service(name="database")
-class DatabaseService:
-    @after_config
+@service()
+class Database(ServiceBase):
+    @after_init
     async def connect(self):
         print("Database connected")
 ```
@@ -74,51 +78,57 @@ class DatabaseService:
 ```python
 from canary_framework import module
 
-@module(name="app", services=[DatabaseService, ApiRouter])
-class AppModule:
+@module(services=[Database, Api])
+class App(ModuleBase):
     pass
 ```
 
 ### 路由 (Router)
 
-路由处理 HTTP 请求：
+路由处理 HTTP 请求，参数自动绑定：
 
 ```python
 from canary_framework import router, get
+from canary_framework.core.router import RouterBase
 
-@router(name="users", prefix="/users")
-class UsersRouter:
+@router(prefix="/users")
+class Users(RouterBase):
     @get("/")
-    async def list_users(self, request):
+    async def list_users(self):
         return {"users": []}
 ```
 
 ### 依赖注入
 
-服务可以声明依赖，框架自动注入：
+通过类型注解声明依赖 — 框架自动解析并注入：
 
 ```python
-@service(name="user_service", deps=[DatabaseService])
-class UserService:
+from canary_framework import service
+from canary_framework.core.service import ServiceBase
+
+@service()
+class UserRepo(ServiceBase):
+    db: Database  # 框架自动注入
+
     async def get_user(self, user_id):
-        return await self.database_service.query(...)
+        return await self.db.query(...)
 ```
 
 ## 下一步
 
-- [快速入门](./quickstart.md) - 更全面的指南
+- [快速入门](./quickstart.md) - 更全面的入门指南
 - [服务](./services.md) - 了解服务定义和生命周期
 - [模块](./modules.md) - 理解模块组合
 - [Web 路由](./web.md) - 用路由构建 Web API
-- [依赖注入](./dependency-injection.md) - 掌握 DI 系统
+- [依赖注入](./dependency-injection.md) - 掌握注解驱动的 DI 系统
 - [生命周期](./lifecycle.md) - 控制服务初始化和清理
-- [核心概念](./core.md) - 深入了解框架内部
+- [核心概念](./core.md) - 深入了解框架内部机制
 - [API 参考](./api-reference.md) - 完整的 API 文档
 
 ## 设计原则
 
-1. **装饰器驱动** - 代码即配置
-2. **异步优先** - 基于 async/await
-3. **显式依赖** - 清晰的依赖声明
-4. **约定优于配置** - 合理的默认值
-5. **可组合性** - 通过模块构建复杂系统
+1. **装饰器驱动** — 代码即配置
+2. **异步优先** — 基于 async/await 构建
+3. **注解驱动依赖注入** — 通过类型注解声明依赖
+4. **自动命名** — 名称从类名派生，无需手动指定字符串
+5. **可组合性** — 通过模块构建复杂系统

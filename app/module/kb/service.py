@@ -2,9 +2,8 @@ import uuid
 from typing import Optional
 
 from canary_framework import service
-from fastapi import HTTPException
+from canary_framework.core.service import ServiceBase
 
-from app.module.db.module import DBModule
 from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
 from app.module.db.repository.kb_member_repostory import KBMemberRepository
@@ -15,7 +14,7 @@ from app.module.db.models import KnowledgeBase, KbMember
 
 
 @service()
-class KbService:
+class KbService(ServiceBase):
     knowledge_base_repo: KnowledgeBaseRepository
     kb_member_repo: KBMemberRepository
     kb_file_repo: KBFileRepository

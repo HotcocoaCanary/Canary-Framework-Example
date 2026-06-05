@@ -1,12 +1,13 @@
-from app.module.db.module import DBModule
+from canary_framework import service
+from canary_framework.core.service import ServiceBase
+
 from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
 from app.module.db.repository.knowledge_bases_repository import KnowledgeBaseRepository
-from canary_framework import service
 
 
 @service()
-class FileService:
+class FileService(ServiceBase):
     knowledge_base_repo: KnowledgeBaseRepository
     kb_file_repo: KBFileRepository
     kb_chunk_repo: KbChunkRepository

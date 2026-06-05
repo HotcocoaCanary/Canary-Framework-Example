@@ -1,8 +1,6 @@
-
-
 from canary_framework import service
+from canary_framework.core.service import ServiceBase
 
-from app.module.db.module import DBModule
 from app.module.db.repository.collection_item_repository import CollectionItemRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
 from app.module.db.repository.knowledge_bases_repository import KnowledgeBaseRepository
@@ -10,7 +8,7 @@ from app.module.collection.schema import SubmitUrlRequest
 
 
 @service()
-class CollService:
+class CollService(ServiceBase):
     collection_repo: CollectionItemRepository
     knowledge_base_repo: KnowledgeBaseRepository
     kb_file_repo: KBFileRepository

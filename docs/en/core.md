@@ -1,266 +1,254 @@
-# Core Concepts
+# Architecture & Internals
 
-This document explains the core design principles and internal architecture of Canary Framework.
+This document covers the internal design, data flow, and mechanics of Canary Framework.
 
-## Design Principles
+## Design Overview
 
-### 1. Decorator-Driven
+Canary Framework follows a three-layer architecture:
 
-The framework uses decorators to keep your code clean and declarative:
+```
+common/  ──►  core/  ──►  decorators/  ──►  engine/
+(types,        (ServiceBase,   (public API:      (registry,
+ config,        ModuleBase,     @service,         injector,
+ errors,        RouterBase)     @module,          hooks,
+ routing)                       @router,          openapi,
+                                @config,          params,
+                                lifecycle         logging)
+                                hooks)
+```
+
+- **common/** — Zero framework-internal dependencies. Types, config model, error hierarchy, and route parsing that every other module imports.
+- **core/** — The three base classes (`ServiceBase`, `ModuleBase`, `RouterBase`) that provide lifecycle, DI wiring, and ASGI integration.
+- **decorators/** — The public API. Decorators validate base class inheritance, attach metadata markers, and auto-generate names.
+- **engine/** — Runtime machinery: registry, topological sort, hook discovery, OpenAPI generation, parameter resolution, and logging.
+
+## ServiceBase Internals
+
+`ServiceBase` (core/service.py) is the root base class for all framework components. ModuleBase and RouterBase both inherit from it.
+
+### `__init__`
 
 ```python
-@service(name="my_service")
-class MyService:
-    pass
+def __init__(self):
+    self._cf_hooks: HookDict | None = None     # Lazily discovered hooks
+    self._cf_parent_registry: object | None = None  # Injected by parent module
 ```
 
-Instead of complex configuration files, your code itself is the configuration.
+### Lifecycle Methods
 
-### 2. Async-First
+| Method | Signature | What it does |
+|---|---|---|
+| `init()` | `() → None` | Invokes `AFTER_INIT` hook. |
+| `startup()` | `() → None` | Invokes `BEFORE_STARTUP` hook. |
+| `shutdown()` | `() → None` | Invokes `BEFORE_SHUTDOWN` hook. |
 
-Everything is built around async/await for high performance:
+### `__call__` — ASGI 3 Interface
 
 ```python
-@service(name="my_service")
-class MyService:
-    async def do_something(self):
-        await some_async_operation()
+async def __call__(self, scope, receive, send):
+    if scope["type"] == "lifespan":
+        await self._handle_lifespan(receive, send)
+    else:
+        asgi = getattr(self, "asgi_app", None)
+        if asgi is not None:
+            await asgi(scope, receive, send)
 ```
 
-### 3. Explicit Dependencies
+Maps ASGI lifespan events to `startup()`/`shutdown()`. Non-lifespan requests are delegated to `self.asgi_app` if available (set by subclasses).
 
-Dependencies are declared explicitly, making your code easier to understand and test:
+### `_handle_lifespan`
 
-```python
-@service(name="my_service", deps=[DatabaseService, CacheService])
-class MyService:
-    pass
-```
+Implements the ASGI lifespan protocol:
 
-### 4. Convention Over Configuration
+1. Receives `lifespan.startup` → calls `self.startup()` → sends `lifespan.startup.complete`
+2. Receives `lifespan.shutdown` → calls `self.shutdown()` → sends `lifespan.shutdown.complete` → exits
 
-Sensible defaults reduce boilerplate:
-- Dependencies are auto-injected with snake_case names
-- Lifecycle methods follow a standard pattern
-- Routers are auto-mounted at predictable paths
+### `_invoke_hook`
 
-### 5. Composability
+Lazy hook discovery via `find_hooks()` (engine/hooks.py). On first invocation, `find_hooks()` traverses the class MRO looking for methods marked with hook markers (`__cf_after_init__`, `__cf_before_startup__`, `__cf_before_shutdown__`) and binds them to the instance. Supports both sync and async hooks. Any exception raised by a hook is wrapped in `LifecycleHookError`.
 
-Build complex systems by composing simple modules:
+## ModuleBase Internals
 
-```python
-@module(name="app", services=[AuthModule, PostsModule, CommentsModule])
-class AppModule:
-    pass
-```
+`ModuleBase` (core/module.py) extends `ServiceBase` and orchestrates child services.
 
-## Architecture Overview
+### `init()` Flow
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Application                         │
-├─────────────────────────────────────────────────────────┤
-│                      Modules                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ Auth Module  │  │ Posts Module │  │   ...        │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-├─────────────────────────────────────────────────────────┤
-│                      Services                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │   Service    │  │   Service    │  │   Router     │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-├─────────────────────────────────────────────────────────┤
-│                      Engine                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
-│  │ Registry │  │ Injector │  │ Lifecycle│  │ Hooks  │  │
-│  └──────────┘  └──────────┘  └──────────┘  └────────┘  │
-├─────────────────────────────────────────────────────────┤
-│                      Starlette/ASGI                      │
-└─────────────────────────────────────────────────────────┘
+register services recursively
+    ↓
+topological_sort (Kahn's algorithm)
+    ↓
+instantiate services in order
+    ↓
+DI wiring: resolve_deps → setattr injection
+    ↓
+set _cf_parent_registry on all ServiceBase children
+    ↓
+init each child in order
+    ↓
+invoke AFTER_INIT hook
 ```
 
-## Core Components
+**Step-by-step:**
 
-### 1. Decorators
+1. **Registration** (`_register_entry_with_deps`): For each service in the module's `services` list, register it in the registry. For each registered service, call `resolve_deps(cls)` to discover annotation-declared dependencies and register them recursively.
 
-Decorators transform plain classes into framework-aware components:
+2. **Topological sort** (`topological_sort`): Uses Kahn's algorithm. Builds a dependency graph from `resolve_deps()` output, computes in-degrees, and produces a valid startup order. Detects circular dependencies.
 
-- `@service`: Marks a class as a service
-- `@module`: Marks a class as a module
-- `@router`: Marks a class as a router
-- `@get/@post/etc`: Marks methods as route handlers
-- `@after_config/etc`: Marks methods as lifecycle hooks
+3. **Instantiation**: Creates instances of all registered classes in topological order via `entry.cls()`.
 
-### 2. Base Classes
+4. **DI wiring**: For each instance, `resolve_deps(type(inst))` returns `{attr_name: dep_type}`. For each dependency, `setattr(inst, attr_name, registry.get_by_class(dep_type).instance)` injects the resolved instance. The annotation key name becomes the attribute name.
 
-Decorated classes automatically inherit from base classes:
+5. **Parent registry injection**: `inst._cf_parent_registry = registry` is set on every `ServiceBase` instance. This is how Routers access sibling RouterMetas and how Agents will access the registry.
 
-- `ServiceBase`: Base for services with lifecycle methods
-- `ModuleBase`: Base for modules that coordinate services
-- `RouterBase`: Base for routers with ASGI integration
+6. **Child init**: Each child's `init()` is called in topological order. Config is auto-discovered from `services` list — any class passing `issubclass(CanaryConfig)` is treated as the configuration.
 
-### 3. Engine
+### `asgi_app` Property
 
-The engine manages the framework's core operations:
+Lazily builds a Starlette `Router` by iterating over child services in startup order:
 
-- **Registry**: Service registration and lookup
-- **Injector**: Dependency injection and topological sorting
-- **Hooks**: Lifecycle hook discovery and execution
-- **Utils**: Helper functions (name conversion, etc.)
+- **Duck-typing mounts**: If `hasattr(inst, "asgi_app")`, the child is mounted at its `get_mount_path()` (or `f"/{name}"` fallback) via Starlette `Mount`.
+- **Root routes**: If `hasattr(inst, "_cf_get_root_routes")`, the child's root route list is contributed to the module-level router. This is how Routers provide `/docs`, `/redoc`, `/openapi.json` at the root level.
 
-## How It Works: Module Startup
+Mount path collisions are detected and raise `ValueError`.
 
-Let's trace through what happens when you start a module:
+### Lifecycle Propagation
 
-### Step 1: Module Instantiation
+All lifecycle methods (init, startup, shutdown) propagate to children:
+- **Forward order** (topological): init, startup
+- **Reverse order**: shutdown
 
-```python
-app = AppModule()
-```
+## RouterBase Internals
 
-- Creates an instance of your module class
-- The class inherits from `ModuleBase` via the decorator
+`RouterBase` (core/router.py) extends `ServiceBase` and provides HTTP routing.
 
-### Step 2: Configuration
+### `asgi_app` Property
 
-```python
-await app.configure(config)
-```
+Lazily builds a Starlette `Router` from `_collect_routes()`:
 
-1. Collects all services from the module's `services` list
-2. Builds a dependency graph by traversing service dependencies
-3. Performs a topological sort to determine startup order
-4. Creates instances of all services
-5. Injects dependencies into each service
-6. Calls `configure()` on each service in order
-7. Runs `@after_config` hooks
+1. Scans all methods on the class using `dir()` 
+2. Finds methods with `ROUTE_ATTR` (`__cf_route__`) — set by HTTP method decorators
+3. For each route, calls `_route_handler()` to create a Starlette `Route`
 
-### Step 3: Initialization
+### Route Building (`_route_handler`)
 
-```python
-await app.init()
-```
+For each decorated method:
 
-1. Calls `init()` on each service in order
-2. Runs `@after_init` hooks
+1. Reads `ROUTE_ATTR` dict: `{method, path, request_model, ...}`
+2. `parse_route_path(path)` → extracts Starlette path, path param names, query param names
+3. Creates an `endpoint` closure that:
+   - Binds path params from `request.path_params` with type conversion
+   - Binds query params from `request.query_params` with type conversion
+   - If `request_model` is set, calls `await request.json()` and parses with Pydantic
+   - Calls `await handler(...)` with resolved kwargs
+   - Converts return value via `_auto_response()`
+4. Returns `Route(starlette_path, endpoint=endpoint, methods=[method])`
 
-### Step 4: Startup
+### `startup()` — OpenAPI Documentation
 
-```python
-await app.startup()
-```
+Overrides `ServiceBase.startup()`. On startup:
 
-1. Runs `@before_startup` hooks
-2. Calls `startup()` on each service in order
+1. Calls `super().startup()` for hook invocation
+2. Collects `RouterMeta` from self and all sibling routers via `_cf_parent_registry`
+3. Calls `generate_openapi_schema()` with all router metas and config values
+4. Generates Swagger UI and ReDoc HTML pages (using CDN URLs from config)
+5. Creates root routes for `/docs`, `/redoc`, `/openapi.json`
+6. First-wins registration: only the first router in a module registers these docs (tracked via `_cf_docs_registered` on the parent registry)
 
-### Step 5: Request Handling
+### `get_mount_path()`
 
-The module acts as an ASGI app:
-- Collects all routers from services
-- Creates a Starlette router
-- Mounts child routers at their service names
-- Routes requests to handlers
+Returns `meta.prefix` if set, otherwise falls back to `/{CF_NAME_ATTR}` (e.g., `"/PostRouter"`).
 
-### Step 6: Shutdown
+### `_cf_get_root_routes()`
 
-```python
-await app.shutdown()
-```
-
-1. Runs `@before_shutdown` hooks
-2. Calls `shutdown()` on each service in reverse order
-
-## Metadata System
-
-The framework stores metadata on decorated classes:
-
-```python
-@service(name="my_service", deps=[DatabaseService])
-class MyService:
-    pass
-
-# Metadata is stored as attributes
-hasattr(MyService, "__cf_service__")  # True
-hasattr(MyService, "__cf_service_meta__")  # True
-```
-
-Metadata classes:
-- `ServiceMeta`: Metadata for services
-- `ModuleMeta`: Metadata for modules (extends ServiceMeta)
-- `RouterMeta`: Metadata for routers (extends ServiceMeta)
-
-## Marker System
-
-Markers identify what type a class is:
-
-- `__cf_service__`: Identifies a service class
-- `__cf_module__`: Identifies a module class
-- `__cf_router__`: Identifies a router class
-
-Helper functions:
-- `is_cf_service()`: Check if a class is a service
-- `is_cf_module()`: Check if a class is a module
-- `is_cf_router()`: Check if a class is a router
+Returns the documentation root routes when a parent registry exists. The parent module's `asgi_app` property calls this to contribute `/docs`, `/redoc`, `/openapi.json` at the root level.
 
 ## Dependency Injection Flow
 
 ```
-1. Collect all services
-   ↓
-2. Register in registry
-   ↓
-3. Build dependency graph
-   ↓
-4. Topological sort
-   ↓
-5. Create instances
-   ↓
-6. Inject dependencies
-   ↓
-7. Run lifecycle
+resolve_deps(cls) → __annotations__ → filter by CF_SERVICE_MARKER
+    ↓
+{attr_name: dep_type}
+    ↓
+recursive registration → topological_sort (Kahn)
+    ↓
+startup_order: [name1, name2, ...]
+    ↓
+instantiation → setattr injection → lifecycle
+```
+
+### `resolve_deps(cls)`
+
+Reads `cls.__annotations__` via `typing.get_type_hints()` and returns only those entries whose type has `CF_SERVICE_MARKER` set (i.e., is a `@service`, `@module`, or `@router` decorated class):
+
+```python
+# For class:
+@service()
+class Auth(ServiceBase):
+    db: Database   # ✓ CF_SERVICE_MARKER — included
+    x: int         # ✗ Not a service — excluded
+
+# resolve_deps(Auth) → {"db": Database}
+```
+
+### `topological_sort(registry)`
+
+Uses Kahn's algorithm:
+
+1. Build adjacency list from `resolve_deps()`
+2. Compute in-degree for each node
+3. Queue nodes with in-degree 0
+4. Process queue, decrementing in-degrees
+5. If not all nodes are processed → `CircularDependencyError`
+
+## Metadata System
+
+Decorators set metadata markers on classes. These markers drive all framework behavior.
+
+### Markers
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `CF_SERVICE_MARKER` | `"__cf_service__"` | Set to `True` on all `@service`, `@module`, `@router` classes |
+| `CF_SERVICE_META` | `"__cf_service_meta__"` | Stores `ServiceMeta` / `ModuleMeta` / `RouterMeta` instance |
+| `CF_NAME_ATTR` | `"__cf_name__"` | Auto-generated name (e.g., `"DatabaseService"`) |
+| `ROUTE_ATTR` | `"__cf_route__"` | Route metadata dict on HTTP handler methods |
+| `CF_CONFIG_MARKER` | `"__cf_config__"` | Set to `True` on `@config` classes |
+
+### Meta Types
+
+- **`ServiceMeta(name)`** — Set by `@service`
+- **`ModuleMeta(name, services)`** — Set by `@module`, extends `ServiceMeta`
+- **`RouterMeta(name, prefix, tags, routes)`** — Set by `@router`, extends `ServiceMeta`
+
+### Type Checks
+
+`is_cf_service`, `is_cf_module`, and `is_cf_router` use `isinstance` checks against the meta type stored in `CF_SERVICE_META`:
+
+```python
+def is_cf_service(cls):  # hasattr(cls, CF_SERVICE_MARKER)
+def is_cf_module(cls):   # isinstance(getattr(cls, CF_SERVICE_META, None), ModuleMeta)
+def is_cf_router(cls):   # isinstance(getattr(cls, CF_SERVICE_META, None), RouterMeta)
 ```
 
 ## ASGI Integration
 
-The framework integrates with Starlette for ASGI support:
+1. **`ServiceBase.__call__`** — Handles ASGI lifespan protocol (startup/shutdown events). Delegates non-lifespan requests to `asgi_app`.
 
-1. `RouterBase` collects route handlers
-2. Converts them to Starlette `Route` objects
-3. Creates a Starlette `Router`
-4. `ModuleBase` mounts child routers
-5. The module acts as an ASGI application
+2. **`ModuleBase.asgi_app`** — Aggregates child ASGI apps via duck-typing. Mounts children with `asgi_app` at their mount paths. Contributes root routes from children with `_cf_get_root_routes()`.
+
+3. **`RouterBase.asgi_app`** — Builds a Starlette `Router` from collected route handlers. On `startup()`, generates OpenAPI schema and registers documentation endpoints as root routes (first-wins).
 
 ## Error Handling
 
-The framework defines custom exceptions:
+```
+Exception
+└── CanaryFrameworkError
+    ├── ConfigurationError            # Config load/validation failure
+    ├── ServiceNotFoundError          # Service lookup failure
+    ├── CircularDependencyError       # Topological sort cycle detected
+    ├── DependencyInjectionError      # DI wiring failure (None instance, etc.)
+    └── LifecycleHookError            # Hook raised unhandled exception
+```
 
-- `CanaryFrameworkError`: Base exception
-- `DependencyInjectionError`: Error during DI
-- `CircularDependencyError`: Circular dependency detected
-- `LifecycleHookError`: Error in lifecycle hook
-- `ServiceNotFoundError`: Service not found in registry
-
-## Extensibility
-
-The framework is designed to be extensible:
-
-- Create custom base classes by inheriting from `ServiceBase`
-- Build custom decorators that wrap the built-in ones
-- Create composite modules that package related services
-- Integrate with any ASGI-compatible server
-
-## Performance Considerations
-
-- **Startup**: O(n log n) due to topological sort
-- **Runtime**: O(1) lookup for services
-- **Memory**: Services are singletons, so memory is efficient
-- **Requests**: Handled by Starlette, very fast
-
-## Testing Strategy
-
-The framework is designed for testability:
-
-- Services are plain classes, easy to instantiate
-- Dependencies are explicit, easy to mock
-- Lifecycle methods can be called individually
-- No global state, tests are isolated
+All framework errors inherit from `CanaryFrameworkError`, so callers can catch a single type for all framework errors.

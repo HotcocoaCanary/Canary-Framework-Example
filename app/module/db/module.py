@@ -1,5 +1,7 @@
-from canary_framework.decorators import module
+from canary_framework import module
+from canary_framework.core.module import ModuleBase
 
+from app.config import AppConfig
 from app.module.db.repository.collection_item_repository import CollectionItemRepository
 from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
@@ -17,8 +19,8 @@ from app.module.db.repository.session_repository import SessionRepository
         KBMemberRepository,
         KBFileRepository,
         KbChunkRepository,
-        CollectionItemRepository
+        CollectionItemRepository,
     ]
 )
-class DBModule:
-    pass
+class DBModule(ModuleBase):
+    config: AppConfig

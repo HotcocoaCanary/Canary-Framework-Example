@@ -6,8 +6,9 @@ from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
 
-from src.module.db_module.models import *  # noqa: F401, F403
+from app.module.db.models import *  # noqa: F401, F403
 
 config = context.config
 

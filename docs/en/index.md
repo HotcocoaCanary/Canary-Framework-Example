@@ -1,15 +1,217 @@
 # Canary Framework
 
-Canary Framework is a lightweight, decorator-driven Python async service framework designed for building modular, maintainable, and testable applications.
+Lightweight, decorator-driven Python async service framework. Core philosophy: **Service is the smallest unit. Modules compose services. Modules themselves are services.**
 
-## Key Features
+## Architecture at a Glance
 
-- **Decorator-driven**: Use simple decorators to define services, modules, and routes
-- **Dependency injection**: Built-in DI container with automatic dependency resolution
-- **Lifecycle management**: Complete lifecycle hooks for services and modules
-- **ASGI compatible**: Built on Starlette for high-performance async web applications
-- **Modular architecture**: Compose your application from reusable modules
-- **OpenAPI support**: Auto-generated Swagger UI and ReDoc documentation
+```
+┌─────────────────────────────────────────────────────────────┐
+│  @config(CanaryConfig)  ——  @module(services=[...])          │
+│      auto-discovered          composes & orchestrates         │
+├─────────────────────────────────────────────────────────────┤
+│  @service(ServiceBase)              @router(RouterBase)      │
+│    business logic                     HTTP routing           │
+│    lifecycle hooks                    auto OpenAPI            │
+├─────────────────────────────────────────────────────────────┤
+│  Engine: Registry · Injector · Hooks · OpenAPI · Params      │
+├─────────────────────────────────────────────────────────────┤
+│  Starlette / ASGI (uvicorn)                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Core Concepts
+
+### Service — `@service()` + `ServiceBase`
+
+The smallest unit. Encapsulates business logic with lifecycle hooks and annotation-driven dependency injection.
+
+```python
+from canary_framework import service, after_init, before_shutdown
+from canary_framework.core.service import ServiceBase
+
+@service()
+class Database(ServiceBase):
+    db_url: str = "sqlite:///app.db"
+
+    @after_init
+    async def connect(self):
+        self.connection = await create_pool(self.db_url)
+
+    @before_shutdown
+    async def disconnect(self):
+        await self.connection.close()
+
+    async def query(self, sql: str):
+        return await self.connection.execute(sql)
+```
+
+### Module — `@module(services=[...])` + `ModuleBase`
+
+Orchestrates child services through their lifecycle. Mounts child ASGI apps. Modules themselves are services.
+
+```python
+from canary_framework import module
+from canary_framework.core.module import ModuleBase
+
+@module(services=[Database, Auth, Posts])
+class BlogApp(ModuleBase):
+    pass
+```
+
+### Router — `@router(prefix=...)` + `RouterBase`
+
+HTTP routing with auto-bound path params, query params, and request body. Auto-generates OpenAPI 3.0.3 documentation.
+
+```python
+from canary_framework import router, get, post
+from canary_framework.core.router import RouterBase
+
+@router(prefix="/api/posts", tags=["Posts"])
+class Posts(RouterBase):
+    db: Database
+
+    @get("/")
+    async def list_posts(self, page: int = 1, limit: int = 10):
+        return await self.db.query(f"SELECT * FROM posts LIMIT {limit} OFFSET {(page-1)*limit}")
+
+    @get("/{post_id}")
+    async def get_post(self, post_id: int):
+        return await self.db.query(f"SELECT * FROM posts WHERE id={post_id}")
+
+    @post("/", request_model=PostCreate)
+    async def create_post(self, body: PostCreate):
+        return await self.db.create_post(body), 201
+```
+
+### Configuration — `@config` + `CanaryConfig`
+
+Pydantic-based configuration with sensible defaults and type validation. Extra fields are allowed.
+
+```python
+from canary_framework import config
+from canary_framework.common.config import CanaryConfig
+
+@config
+class AppConfig(CanaryConfig):
+    host: str = "0.0.0.0"
+    port: int = 8080
+    openapi_title: str = "My Blog API"
+    log_level: str = "DEBUG"
+```
+
+### Dependency Injection
+
+Annotation-driven DI: declare dependencies with type annotations, and the framework resolves them via `resolve_deps()` + `topological_sort()` (Kahn's algorithm). Dependencies are injected using `setattr(instance, attr_name, dep_instance)` — the annotation key name becomes the attribute name.
+
+```python
+@service()
+class Auth(ServiceBase):
+    db: Database   # Auto-injected as self.db
+    cache: Cache   # Auto-injected as self.cache
+```
+
+## Quick Example
+
+A complete minimal working example: Database service + PostService + PostRouter + BlogApp module + AppConfig + entry point.
+
+```python
+# main.py
+from pydantic import BaseModel
+from canary_framework import (
+    service, module, router, config, get, post,
+    before_shutdown, after_init,
+)
+from canary_framework.core.service import ServiceBase
+from canary_framework.core.module import ModuleBase
+from canary_framework.core.router import RouterBase
+from canary_framework.common.config import CanaryConfig
+
+# ---- Models ----
+class PostCreate(BaseModel):
+    title: str
+    content: str
+
+# ---- Services ----
+@service()
+class Database(ServiceBase):
+    def __init__(self):
+        self.connected = False
+
+    @after_init
+    async def connect(self):
+        self.connected = True
+
+    @before_shutdown
+    async def disconnect(self):
+        self.connected = False
+
+    async def query(self, sql: str):
+        return f"Executed: {sql}"
+
+@service()
+class PostService(ServiceBase):
+    db: Database
+
+    def __init__(self):
+        self.posts = []
+
+    @after_init
+    async def seed(self):
+        self.posts = [{"id": 1, "title": "Hello", "content": "World"}]
+
+    async def list_posts(self):
+        return self.posts
+
+    async def get_post(self, post_id: int):
+        return next((p for p in self.posts if p["id"] == post_id), None)
+
+    async def create_post(self, data: dict):
+        data["id"] = len(self.posts) + 1
+        self.posts.append(data)
+        return data
+
+# ---- Router ----
+@router(prefix="/api/posts", tags=["Posts"])
+class PostRouter(RouterBase):
+    db: Database
+    posts: PostService
+
+    @get("/")
+    async def list_posts(self, page: int = 1, limit: int = 10):
+        return {"posts": await self.posts.list_posts()}
+
+    @get("/{post_id}")
+    async def get_post(self, post_id: int):
+        post = await self.posts.get_post(post_id)
+        return post if post else ({"error": "Not found"}, 404)
+
+    @post("/", request_model=PostCreate)
+    async def create_post(self, body: PostCreate):
+        return await self.posts.create_post(body.model_dump()), 201
+
+# ---- Module & Config ----
+@module(services=[AppConfig, Database, PostService, PostRouter])
+class BlogApp(ModuleBase):
+    config: AppConfig
+
+@config
+class AppConfig(CanaryConfig):
+    host: str = "0.0.0.0"
+    port: int = 8000
+    openapi_title: str = "Blog API"
+    log_level: str = "DEBUG"
+
+async def setup():
+    app = BlogApp()
+    await app.init()
+    return app
+
+if __name__ == "__main__":
+    import asyncio
+    import uvicorn
+    app = asyncio.run(setup())
+    uvicorn.run(app, host="0.0.0.0", port=8000, lifespan="on")
+```
 
 ## Installation
 
@@ -17,108 +219,51 @@ Canary Framework is a lightweight, decorator-driven Python async service framewo
 pip install canary-framework
 ```
 
-## Quick Start
+## Package Structure
 
-Here's a minimal example to get you started:
-
-```python
-from canary_framework import module, router, get, post
-
-@router(name="api")
-class ApiRouter:
-    @get("/hello")
-    async def hello(self, request):
-        return {"message": "Hello, Canary!"}
-    
-    @post("/echo")
-    async def echo(self, request):
-        data = await request.json()
-        return {"echo": data}
-
-@module(name="app", services=[ApiRouter])
-class AppModule:
-    pass
-
-# Run with uvicorn
-# uvicorn main:AppModule --reload
 ```
-
-## OpenAPI Documentation
-
-After starting the application, you can access these endpoints:
-
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
-- **OpenAPI JSON**: `http://localhost:8000/openapi.json`
-
-## Core Concepts
-
-### Service
-
-Services are the building blocks of your application, encapsulating business logic:
-
-```python
-from canary_framework import service, after_config
-
-@service(name="database")
-class DatabaseService:
-    @after_config
-    async def connect(self):
-        print("Database connected")
+src/canary_framework/
+├── common/              # Types, errors, routing, config
+│   ├── config.py        # CanaryConfig (Pydantic-based configuration)
+│   ├── types.py         # Enums, dataclasses, markers, resolve_deps()
+│   ├── routing.py       # Route path parsing
+│   └── errors.py        # Framework exceptions
+├── core/                # Base classes
+│   ├── service.py       # ServiceBase — lifecycle, ASGI __call__
+│   ├── module.py        # ModuleBase — orchestration, DI, ASGI aggregation
+│   └── router.py        # RouterBase — HTTP routing, OpenAPI docs generation
+├── decorators/          # Public decorator API
+│   ├── service.py       # @service
+│   ├── module.py        # @module
+│   ├── router.py        # @router, @get, @post, @put, @delete, @patch
+│   ├── config.py        # @config
+│       └── lifecycle.py     # @after_init, @before_startup, @before_shutdown
+└── engine/              # Runtime engine
+    ├── registry.py      # Service registry (O(1) lookup, parent chaining)
+    ├── injector.py      # Topological sort (Kahn's algorithm)
+    ├── hooks.py         # Lifecycle hook discovery
+    ├── openapi.py       # OpenAPI 3.0.3 schema generation
+    ├── params.py        # Route parameter resolution
+    └── logging.py       # Framework logging
 ```
-
-### Module
-
-Modules are containers that organize and compose services:
-
-```python
-from canary_framework import module
-
-@module(name="app", services=[DatabaseService, ApiRouter])
-class AppModule:
-    pass
-```
-
-### Router
-
-Routers handle HTTP requests:
-
-```python
-from canary_framework import router, get
-
-@router(name="users", prefix="/users")
-class UsersRouter:
-    @get("/")
-    async def list_users(self, request):
-        return {"users": []}
-```
-
-### Dependency Injection
-
-Services can declare dependencies, which the framework automatically injects:
-
-```python
-@service(name="user_service", deps=[DatabaseService])
-class UserService:
-    async def get_user(self, user_id):
-        return await self.database_service.query(...)
-```
-
-## Next Steps
-
-- [Quickstart](./quickstart.md) - A more comprehensive guide
-- [Services](./services.md) - Learn about service definition and lifecycle
-- [Modules](./modules.md) - Understand module composition
-- [Web Routing](./web.md) - Build web APIs with routing
-- [Dependency Injection](./dependency-injection.md) - Master the DI system
-- [Lifecycle](./lifecycle.md) - Control service initialization and cleanup
-- [Core Concepts](./core.md) - Dive into the framework internals
-- [API Reference](./api-reference.md) - Complete API documentation
 
 ## Design Principles
 
-1. **Decorator-driven** - Code is configuration
-2. **Async-first** - Built on async/await
-3. **Explicit dependencies** - Clear dependency declarations
-4. **Convention over configuration** - Sensible defaults
-5. **Composability** - Build complex systems through modules
+1. **Decorator-driven** — Code is configuration; decorators transform plain classes
+2. **Async-first** — Built on async/await, ASGI/Starlette
+3. **Annotation-based DI** — Dependencies declared with type hints, resolved automatically
+4. **Explicit inheritance** — Classes inherit from framework base classes (ServiceBase, ModuleBase, RouterBase)
+5. **Automatic naming** — `ClassName` + suffix (`Service`, `Module`, `Router`)
+6. **Composability** — Modules compose services; modules are themselves services
+
+## Next Steps
+
+- [Quickstart](./quickstart.md)
+- [Configuration](./configuration.md)
+- [Services](./services.md)
+- [Modules](./modules.md)
+- [Routers & HTTP](./web.md)
+- [Dependency Injection](./dependency-injection.md)
+- [Lifecycle](./lifecycle.md)
+- [Architecture & Internals](./core.md)
+- [API Reference](./api-reference.md)

@@ -1,62 +1,88 @@
 # 依赖注入
 
-Canary 框架具有内置的依赖注入（DI）系统，可自动管理服务依赖项。
+Canary Framework 具有内置的、注解驱动的依赖注入（DI）系统，自动管理服务依赖。
 
 ## 工作原理
 
-1. **声明依赖项**：指定服务依赖的服务
-2. **注册服务**：服务在注册表中注册
-3. **拓扑排序**：服务按依赖顺序排序
-4. **实例化和注入**：服务被实例化并注入依赖项
+1. **声明依赖**：在服务类上使用 Python 类型注解
+2. **解析**：`resolve_deps(cls)` 读取注解并按 `CF_SERVICE_MARKER` 过滤
+3. **注册**：服务及其依赖递归注册
+4. **拓扑排序**：`topological_sort(registry)` 构建依赖图并确定实例化顺序
+5. **实例化和注入**：按顺序实例化服务；依赖通过 `setattr` 使用注解键名设置
 
-## 声明依赖项
+## 声明依赖
 
-使用 `deps` 参数声明依赖项：
+在类体上使用类型注解声明依赖：
 
 ```python
-@service(name="database")
-class DatabaseService:
+@service()
+class Database(ServiceBase):
     pass
 
-@service(name="cache")
-class CacheService:
+@service()
+class Cache(ServiceBase):
     pass
 
-@service(name="user_repository", deps=[DatabaseService, CacheService])
-class UserRepository:
-    # DatabaseService 可用作 self.database_service
-    # CacheService 可用作 self.cache_service
-    pass
+@service()
+class UserRepository(ServiceBase):
+    db: Database    # 自动注入为 self.db
+    cache: Cache    # 自动注入为 self.cache
+
+    async def get_user(self, user_id):
+        cached = await self.cache.get(f"user:{user_id}")
+        if cached:
+            return cached
+        user = await self.db.query(f"SELECT * FROM users WHERE id={user_id}")
+        await self.cache.set(f"user:{user_id}", user)
+        return user
 ```
 
-## 注入命名
+注解键名成为实例上的属性名：
 
-依赖项使用 snake_case 命名作为属性注入：
+| 注解 | 注入为 |
+|------------|-------------|
+| `db: Database` | `self.db` |
+| `cache: Cache` | `self.cache` |
+| `auth: AuthService` | `self.auth` |
 
-| 类名 | 属性名 |
-|------|--------|
-| `DatabaseService` | `self.database_service` |
-| `UserRepository` | `self.user_repository` |
-| `APIRouter` | `self.api_router` |
+**您选择属性名** — 只需按照您喜欢的方式命名注解字段。
 
 ## 依赖图
 
 框架构建依赖图并确保服务按正确顺序初始化：
 
 ```python
-@service(name="a")
-class A:
+@service()
+class A(ServiceBase):
     pass
 
-@service(name="b", deps=[A])
-class B:
-    pass
+@service()
+class B(ServiceBase):
+    a: A  # 依赖 A
 
-@service(name="c", deps=[B])
-class C:
-    pass
+@service()
+class C(ServiceBase):
+    b: B  # 依赖 B
 
-# 启动顺序：A → B → C
+# 拓扑排序确定顺序：A → B → C
+```
+
+## DI 执行流程
+
+```
+1. resolve_deps(cls) 读取类上的注解
+   ↓
+2. 过滤注解：仅保留带有 CF_SERVICE_MARKER 的类型
+   ↓
+3. 递归注册每个依赖到注册表
+   ↓
+4. topological_sort(registry) 构建依赖图
+   ↓
+5. 按拓扑顺序实例化服务
+   ↓
+6. 对每个服务：setattr(instance, attr_name, resolved_dep_instance)
+   ↓
+7. 运行生命周期钩子
 ```
 
 ## 循环依赖
@@ -65,38 +91,38 @@ class C:
 
 ```python
 # ❌ 这将抛出 CircularDependencyError
-@service(name="a", deps=["b"])
-class A:
-    pass
+@service()
+class A(ServiceBase):
+    b: B
 
-@service(name="b", deps=["a"])
-class B:
-    pass
+@service()
+class B(ServiceBase):
+    a: A
 ```
 
 ## 共享实例
 
-服务在其模块中是单例 - 只创建和共享一个实例：
+服务在其模块中是单例 — 只创建并共享一个实例：
 
 ```python
-@service(name="database")
-class DatabaseService:
+@service()
+class Database(ServiceBase):
     def __init__(self):
-        print("DatabaseService created")  # 只打印一次
+        print("Database created")  # 只打印一次
 
-@service(name="service1", deps=[DatabaseService])
-class Service1:
+@service()
+class ServiceA(ServiceBase):
+    db: Database
+
+@service()
+class ServiceB(ServiceBase):
+    db: Database
+
+@module(services=[Database, ServiceA, ServiceB])
+class App(ModuleBase):
     pass
 
-@service(name="service2", deps=[DatabaseService])
-class Service2:
-    pass
-
-@module(name="app", services=[DatabaseService, Service1, Service2])
-class AppModule:
-    pass
-
-# Service1 和 Service2 都获得同一个 DatabaseService 实例
+# ServiceA 和 ServiceB 都接收到同一个 Database 实例
 ```
 
 ## 父注册表
@@ -104,53 +130,66 @@ class AppModule:
 模块可以具有父注册表，允许服务在模块之间共享：
 
 ```python
-@service(name="shared_db")
-class SharedDatabase:
+@service()
+class SharedDatabase(ServiceBase):
     pass
 
-@service(name="auth_service", deps=[SharedDatabase])
-class AuthService:
+@service()
+class AuthService(ServiceBase):
+    db: SharedDatabase
+
+@service()
+class ProductService(ServiceBase):
+    db: SharedDatabase
+
+@module(services=[AuthService])
+class AuthModule(ModuleBase):
     pass
 
-@service(name="product_service", deps=[SharedDatabase])
-class ProductService:
+@module(services=[ProductService])
+class ProductsModule(ModuleBase):
     pass
 
-@module(name="auth", services=[AuthService])
-class AuthModule:
-    pass
-
-@module(name="products", services=[ProductService])
-class ProductsModule:
-    pass
-
-@module(name="app", services=[SharedDatabase, AuthModule, ProductsModule])
-class AppModule:
+@module(services=[SharedDatabase, AuthModule, ProductsModule])
+class App(ModuleBase):
     pass
 
 # AuthService 和 ProductService 共享同一个 SharedDatabase 实例
 ```
 
+## 模块子服务访问
+
+模块子服务通过类名作为属性访问：
+
+```python
+@module(services=[Database, Auth])
+class App(ModuleBase):
+    pass
+
+app = App()
+await app.init()
+
+# 通过类名直接访问子服务
+app.Database    # Database 服务实例
+app.Auth        # Auth 服务实例
+```
+
 ## 手动注入
 
-如果需要，您可以手动注入依赖项：
+如果需要，您可以手动解析依赖：
 
 ```python
 from canary_framework.engine.registry import Registry
-from canary_framework.engine.injector import inject_deps
+from canary_framework.engine.injector import topological_sort, resolve_deps
 
-# 创建注册表
 registry = Registry()
 registry.register(MyService)
-registry.register(MyDependency)
 
-# 创建实例
-for entry in registry:
+# resolve_deps 读取 MyService 上的注解以查找依赖
+# topological_sort 使用 resolve_deps() 构建完整图
+for entry in topological_sort(registry):
     entry.instance = entry.cls()
-
-# 注入依赖项
-for entry in registry:
-    inject_deps(entry.instance, entry, registry)
+    # 使用注解键名通过 setattr 设置依赖
 ```
 
 ## 服务注册表
@@ -162,98 +201,95 @@ from canary_framework.engine.registry import Registry
 
 registry = Registry()
 
-# 注册服务
 registry.register(MyService)
 
-# 按名称查找
-entry = registry.get_by_name("my_service")
-
-# 按类查找
 entry = registry.get_by_class(MyService)
 
-# 检查是否注册
 if MyService in registry:
     pass
 
-# 获取所有服务
 for entry in registry:
-    print(entry.name)
+    print(entry.cls)
 ```
 
-## 服务条目
+## ServiceEntry
 
-注册表中的每个服务都由 `ServiceEntry` 表示：
+注册表中的每个服务由 `ServiceEntry` 表示：
 
 ```python
 @dataclass
 class ServiceEntry:
-    cls: type              # 服务类
-    name: str              # 服务名称
-    instance: object       # 服务实例（配置前为 None）
-    deps: List[type]       # 依赖项
-    dep_names: List[str]   # 依赖项名称
+    cls: type                  # 服务类
+    name: str                  # 自动生成的服务名称
+    instance: object = None    # 服务实例（配置前为 None）
 ```
 
 ## 拓扑排序
 
-框架使用 Kahn 算法进行拓扑排序：
+框架使用 Kahn 算法进行拓扑排序，由 `resolve_deps()` 驱动：
 
 ```python
 from canary_framework.engine.injector import topological_sort
 
-# 获取启动顺序
 order = topological_sort(registry)
-# 返回：["a", "b", "c"]
+# 返回按依赖顺序排列的条目
 ```
 
 ## 完整 DI 示例
 
 ```python
 from canary_framework import module, service
+from canary_framework.core.service import ServiceBase
+from canary_framework.core.module import ModuleBase
 
 # 第 1 层：基础设施
-@service(name="database")
-class DatabaseService:
+@service()
+class Database(ServiceBase):
     async def query(self, sql):
         return f"Query: {sql}"
 
-@service(name="cache")
-class CacheService:
+@service()
+class Cache(ServiceBase):
     async def get(self, key):
         return None
-    
+
     async def set(self, key, value):
         pass
 
 # 第 2 层：仓库
-@service(name="user_repo", deps=[DatabaseService, CacheService])
-class UserRepository:
+@service()
+class UserRepo(ServiceBase):
+    db: Database
+    cache: Cache
+
     async def get_user(self, user_id):
-        cached = await self.cache_service.get(f"user:{user_id}")
+        cached = await self.cache.get(f"user:{user_id}")
         if cached:
             return cached
-        
-        user = await self.database_service.query(f"SELECT * FROM users WHERE id={user_id}")
-        await self.cache_service.set(f"user:{user_id}", user)
+        user = await self.db.query(f"SELECT * FROM users WHERE id={user_id}")
+        await self.cache.set(f"user:{user_id}", user)
         return user
 
 # 第 3 层：服务
-@service(name="user_service", deps=[UserRepository])
-class UserService:
+@service()
+class UserService(ServiceBase):
+    repo: UserRepo
+
     async def get_profile(self, user_id):
-        user = await self.user_repo.get_user(user_id)
+        user = await self.repo.get_user(user_id)
         return {"profile": user}
 
 # 第 4 层：组合
-@module(name="app", services=[DatabaseService, CacheService, UserRepository, UserService])
-class AppModule:
+@module(services=[Database, Cache, UserRepo, UserService])
+class App(ModuleBase):
     pass
 ```
 
 ## 设计原则
 
-1. **显式依赖项**：依赖项声明清晰
-2. **构造函数注入**：没有魔法，依赖项设置为属性
-3. **拓扑顺序**：服务以正确顺序启动
-4. **单实例**：服务在其范围内是单例
-5. **错误检测**：循环依赖早期捕获
+1. **注解驱动**：通过 Python 类型提示声明依赖 — 无需单独的 `deps` 列表
+2. **灵活命名**：您通过注解键控制属性名
+3. **自动解析**：`resolve_deps()` 通过读取注解发现依赖
+4. **拓扑顺序**：服务以正确的依赖顺序启动
+5. **单实例**：服务在其作用域内是单例
+6. **错误检测**：循环依赖在早期被捕获

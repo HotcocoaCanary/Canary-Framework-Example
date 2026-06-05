@@ -38,7 +38,7 @@ services:
     volumes:
       - .:/app
     ports:
-      - "${UVICORN_PORT}:${UVICORN_PORT}"
+      - "${PORT}:${PORT}"
     restart: unless-stopped
 
 volumes:

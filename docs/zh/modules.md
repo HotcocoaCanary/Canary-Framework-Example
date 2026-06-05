@@ -4,21 +4,20 @@
 
 ## 定义模块
 
-使用 `@module` 装饰器定义模块：
+使用 `@module()` 装饰器定义模块：
 
 ```python
 from canary_framework import module
+from canary_framework.core.module import ModuleBase
 
-@module(name="auth_module", services=[...])
-class AuthModule:
+@module(services=[Database, UserRepo, AuthApi])
+class Auth(ModuleBase):
     pass
 ```
 
-### 模块参数
-
-- `name`：（必需）模块的唯一标识符
-- `services`：（可选）此模块包含的服务或模块类列表
-- `deps`：（可选）此模块依赖的服务或模块列表
+- `@module(services=[...])` — 仅需要 `services` 参数
+- 名称从类名自动生成（`ClassName` + `"Module"`）
+- 模块自动命名为 `AuthModule`
 
 ## 模块组合
 
@@ -26,54 +25,65 @@ class AuthModule:
 
 ```python
 from canary_framework import module, service, router
+from canary_framework.core.service import ServiceBase
+from canary_framework.core.module import ModuleBase
+from canary_framework.core.router import RouterBase
 
 # 核心服务
-@service(name="database")
-class DatabaseService:
+@service()
+class Database(ServiceBase):
     pass
 
-@service(name="cache")
-class CacheService:
+@service()
+class Cache(ServiceBase):
     pass
 
-# 认证模块
-@service(name="auth_service", deps=[DatabaseService])
-class AuthService:
+# Auth 模块
+@service()
+class AuthService(ServiceBase):
+    db: Database
+
+@router(prefix="/auth")
+class AuthApi(RouterBase):
+    auth: AuthService
+
+@module(services=[AuthService, AuthApi])
+class Auth(ModuleBase):
     pass
 
-@router(name="auth_api", prefix="/auth", deps=[AuthService])
-class AuthRouter:
-    pass
+# Posts 模块
+@service()
+class PostsService(ServiceBase):
+    db: Database
+    cache: Cache
 
-@module(name="auth", services=[AuthService, AuthRouter])
-class AuthModule:
-    pass
+@router(prefix="/posts")
+class PostsApi(RouterBase):
+    posts: PostsService
 
-# 文章模块
-@service(name="posts_service", deps=[DatabaseService, CacheService])
-class PostsService:
-    pass
-
-@router(name="posts_api", prefix="/posts", deps=[PostsService])
-class PostsRouter:
-    pass
-
-@module(name="posts", services=[PostsService, PostsRouter])
-class PostsModule:
+@module(services=[PostsService, PostsApi])
+class Posts(ModuleBase):
     pass
 
 # 主应用模块
-@module(
-    name="app",
-    services=[
-        DatabaseService,
-        CacheService,
-        AuthModule,
-        PostsModule
-    ]
-)
-class AppModule:
+@module(services=[Database, Cache, Auth, Posts])
+class App(ModuleBase):
     pass
+```
+
+## 模块子服务访问
+
+子服务和子模块通过其类名直接在模块实例上访问：
+
+```python
+app = App()
+await app.init()
+
+# 通过类名访问子服务（非 snake_case）
+app.Database    # Database 服务实例
+app.Cache       # Cache 服务实例
+app.Auth        # Auth 子模块实例
+app.Posts       # Posts 子模块实例
 ```
 
 ## 模块生命周期
@@ -81,20 +91,17 @@ class AppModule:
 模块协调其子服务的生命周期。当调用模块的生命周期方法时，它们按拓扑顺序传播到所有子服务。
 
 ```python
-app = AppModule()
+app = App()
 
-# 1. 配置阶段：按依赖顺序配置所有服务
-await app.configure(config)
-
-# 2. 初始化阶段：初始化所有服务
+# 1. 初始化阶段：按依赖顺序初始化所有服务
 await app.init()
 
-# 3. 启动阶段：启动所有服务
+# 2. 启动阶段：启动所有服务
 await app.startup()
 
 # ... 应用运行 ...
 
-# 4. 关闭阶段：按相反顺序关闭所有服务
+# 3. 关闭阶段：按逆序关闭所有服务
 await app.shutdown()
 ```
 
@@ -103,23 +110,37 @@ await app.shutdown()
 模块可以直接用作 ASGI 应用。它自动挂载所有子路由：
 
 ```python
+from canary_framework import config
+from canary_framework.common.config import CanaryConfig
+
+@config
+class AppConfig(CanaryConfig):
+    host: str = "0.0.0.0"
+    port: int = 8080
+
+async def setup():
+    cfg = AppConfig()
+    app = App()
+    await app.init()
+    return app, cfg
+
+import asyncio
 import uvicorn
 
-# 将模块作为 ASGI 应用运行
-uvicorn.run("main:AppModule", host="0.0.0.0", port=8000)
+app, cfg = asyncio.run(setup())
+uvicorn.run(app, host=cfg.host, port=cfg.port, lifespan="on")
 ```
 
 模块将：
 1. 从其服务中收集所有路由
-2. 将它们挂载在基于其服务名称的路径上
+2. 根据其 prefix 将它们挂载在路径上
 3. 处理 ASGI 请求
 
 ## 模块基类
 
-当您用 `@module` 装饰一个类时，它会自动继承自 `ModuleBase`，该类提供：
+使用 `@module()` 装饰的类必须显式继承 `ModuleBase`，该类提供：
 
-- `config` 属性：访问配置
-- `configure(config)` 方法：配置模块和所有服务
+- `config` 属性：访问通过 DI 注入的配置
 - `init()` 方法：初始化模块和所有服务
 - `startup()` 方法：启动模块和所有服务
 - `shutdown()` 方法：关闭模块和所有服务
@@ -130,64 +151,71 @@ uvicorn.run("main:AppModule", host="0.0.0.0", port=8000)
 模块中的服务共享依赖项。如果多个服务依赖于同一个服务，则只创建并共享一个实例：
 
 ```python
-@service(name="database")
-class DatabaseService:
+@service()
+class Database(ServiceBase):
     pass
 
-@service(name="service_a", deps=[DatabaseService])
-class ServiceA:
+@service()
+class ServiceA(ServiceBase):
+    db: Database
+
+@service()
+class ServiceB(ServiceBase):
+    db: Database
+
+@module(services=[Database, ServiceA, ServiceB])
+class App(ModuleBase):
     pass
 
-@service(name="service_b", deps=[DatabaseService])
-class ServiceB:
-    pass
-
-@module(name="app", services=[DatabaseService, ServiceA, ServiceB])
-class AppModule:
-    pass
-
-# ServiceA 和 ServiceB 都将接收同一个 DatabaseService 实例
+# ServiceA 和 ServiceB 都接收到同一个 Database 实例
 ```
 
 ## 完整示例
 
 ```python
 from canary_framework import module, service, router, get
+from canary_framework.core.service import ServiceBase
+from canary_framework.core.module import ModuleBase
+from canary_framework.core.router import RouterBase
 
 # 服务
-@service(name="db")
-class Database:
-    pass
+@service()
+class Database(ServiceBase):
+    async def query(self, sql):
+        pass
 
-@service(name="user_repo", deps=[Database])
-class UserRepository:
-    pass
+@service()
+class UserRepo(ServiceBase):
+    db: Database
 
-@service(name="user_service", deps=[UserRepository])
-class UserService:
-    pass
+@service()
+class UserService(ServiceBase):
+    repo: UserRepo
 
 # 路由
-@router(name="users", prefix="/api/users", deps=[UserService])
-class UsersRouter:
+@router(prefix="/api/users")
+class Users(RouterBase):
+    user: UserService
+
     @get("/")
-    async def list_users(self, request):
+    async def list_users(self):
         return {"users": []}
 
 # 模块
-@module(name="users_module", services=[UserRepository, UserService, UsersRouter])
-class UsersModule:
+@module(services=[UserRepo, UserService, Users])
+class UsersModule(ModuleBase):
     pass
 
-@module(name="app", services=[Database, UsersModule])
-class App:
+@module(services=[Database, UsersModule])
+class App(ModuleBase):
     pass
 ```
 
 ## 最佳实践
 
-1. **分层架构**：按功能划分模块（如 auth、users、posts）
+1. **分层架构**：按功能组织模块（如 auth、users、posts）
 2. **单一职责**：每个模块专注于一个功能领域
 3. **模块组合**：通过组合小模块构建大型应用
 4. **配置隔离**：为每个模块提供独立的配置空间
 5. **测试隔离**：每个模块可以独立测试
+6. **使用有描述性的注解名称**：`db`、`repo`、`service` — 而非 `d1`、`d2`

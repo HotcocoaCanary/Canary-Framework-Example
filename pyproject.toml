@@ -3,7 +3,7 @@ name = "Canary-Agent"
 version = "0.1.0"
 requires-python = ">=3.12, <3.13"
 dependencies = [
-    "canary-framework>=0.4.10",
+    "canary-framework>=0.4.12",
     "sqlmodel[asyncio]>=0.0.22",
     "asyncpg>=0.30.0",
     "pgvector>=0.2.0",
