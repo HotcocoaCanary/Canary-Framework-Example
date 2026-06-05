@@ -4,6 +4,7 @@ from canary_framework.core.service import ServiceBase
 from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
 from app.module.db.repository.knowledge_bases_repository import KnowledgeBaseRepository
+from app.module.file.schema import CreateFileRequest, PatchFileRequest
 
 
 @service()
@@ -19,13 +20,21 @@ class FileService(ServiceBase):
             return "/" + name
         return parent + "/" + name
 
+    def _parse_path(self, folder_path: str) -> tuple[str, str]:
+        folder_path = folder_path.strip("/")
+        if not folder_path:
+            return "/", ""
+        parts = folder_path.rsplit("/", 1)
+        if len(parts) == 1:
+            return "/", parts[0]
+        return "/" + parts[0], parts[1]
+
     async def _ensure_folder_path(self, kb_id: str, folder_path: str, user_id: str) -> None:
         if not folder_path or folder_path == "/":
             return
         parts = folder_path.strip("/").split("/")
         current = ""
-        for part in parts:
-            idx = parts.index(part)
+        for idx, part in enumerate(parts):
             current_path = "/" + part if not current else current + "/" + part
             parent_path = "/" + "/".join(parts[:idx]) if idx > 0 else "/"
             if idx == 0:
@@ -41,11 +50,11 @@ class FileService(ServiceBase):
                 )
             current = current_path
 
-    def create_folder(
+    def create(
             self,
             kb_id: str,
             folder_path: str,
-            name: str,
+            body: CreateFileRequest,
             user_id: str = "test_user"
     ) -> tuple[bool, dict | str]:
         try:
@@ -55,16 +64,22 @@ class FileService(ServiceBase):
             if kb.created_by != user_id:
                 return False, "仅创建者可操作"
 
-            unique_name = self.kb_file_repo.get_unique_name(kb_id, folder_path, name)
+            parent_path, name = self._parse_path(folder_path)
+            if not name:
+                return False, "路径中缺少文件名"
+
+            self._ensure_folder_path(kb_id, parent_path, user_id)
+
+            unique_name = self.kb_file_repo.get_unique_name(kb_id, parent_path, name)
             file = self.kb_file_repo.create_kb_file(
                 kb_id=kb_id,
                 name=unique_name,
                 created_by=user_id,
-                file_type=None,
-                parent_path=folder_path
+                file_type=body.file_type,
+                parent_path=parent_path
             )
 
-            return True, {"file_id": file.id, "name": unique_name, "file_type": None}
+            return True, {"file_id": file.id, "name": unique_name, "file_type": body.file_type}
         except Exception as e:
             return False, str(e)
 
@@ -80,6 +95,8 @@ class FileService(ServiceBase):
             kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
             if not kb:
                 return False, "知识库不存在"
+
+            folder_path = "/" + folder_path.strip("/") if folder_path.strip("/") else "/"
 
             skip = (page - 1) * size
             files, total = self.kb_file_repo.list_children(kb_id, folder_path, skip=skip, limit=size)
@@ -106,40 +123,10 @@ class FileService(ServiceBase):
         except Exception as e:
             return False, str(e)
 
-    def get_file_detail(
+    def delete_by_path(
             self,
             kb_id: str,
             folder_path: str,
-            file_name: str,
-            user_id: str = "test_user"
-    ) -> tuple[bool, dict | str]:
-        try:
-            f = self.kb_file_repo.get_kb_file_by_path(kb_id, folder_path, file_name)
-            if not f or f.file_type is None:
-                return False, "文件不存在"
-
-            chunks = self.kb_chunk_repo.list_chunks_by_file(f.id)
-            chunk_count = len(chunks)
-
-            return True, {
-                "file_id": f.id,
-                "name": f.name,
-                "file_type": f.file_type,
-                "file_size": f.file_size,
-                "status": f.status,
-                "oss_url": f.oss_url,
-                "chunk_count": chunk_count,
-                "created_at": f.created_at.isoformat(),
-                "updated_at": f.updated_at.isoformat()
-            }
-        except Exception as e:
-            return False, str(e)
-
-    def delete_node(
-            self,
-            kb_id: str,
-            folder_path: str,
-            name: str,
             user_id: str = "test_user"
     ) -> tuple[bool, str]:
         try:
@@ -149,23 +136,78 @@ class FileService(ServiceBase):
             if kb.created_by != user_id:
                 return False, "仅创建者可操作"
 
-            f = self.kb_file_repo.get_kb_file_by_path(kb_id, folder_path, name)
+            parent_path, name = self._parse_path(folder_path)
+            if not name:
+                return False, "路径中缺少文件名"
+
+            parent_path = "/" + parent_path.strip("/") if parent_path.strip("/") else "/"
+
+            f = self.kb_file_repo.get_kb_file_by_path(kb_id, parent_path, name)
             if not f:
                 return False, "文件/文件夹不存在"
 
             if f.file_type is None:
                 all_files = self.kb_file_repo.list_files_by_kb(kb_id)
-                prefix = self._join_path(folder_path, name)
+                prefix = self._join_path(parent_path, name)
                 for child in all_files:
                     if child.parent_path and (
                             child.parent_path == prefix or child.parent_path.startswith(prefix + "/")):
                         self.kb_chunk_repo.delete_chunks_by_file(child.id)
                         self.kb_file_repo.delete_kb_file(child.id)
-                self.kb_file_repo.delete_kb_file_by_path(kb_id, folder_path, name)
+                self.kb_file_repo.delete_kb_file_by_path(kb_id, parent_path, name)
             else:
                 self.kb_chunk_repo.delete_chunks_by_file(f.id)
                 self.kb_file_repo.delete_kb_file(f.id)
 
             return True, "删除成功"
+        except Exception as e:
+            return False, str(e)
+
+    def update_by_path(
+            self,
+            kb_id: str,
+            folder_path: str,
+            body: PatchFileRequest,
+            user_id: str = "test_user"
+    ) -> tuple[bool, dict | str]:
+        try:
+            kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
+            if not kb:
+                return False, "知识库不存在"
+            if kb.created_by != user_id:
+                return False, "仅创建者可操作"
+
+            parent_path, name = self._parse_path(folder_path)
+            if not name:
+                return False, "路径中缺少文件名"
+
+            parent_path = "/" + parent_path.strip("/") if parent_path.strip("/") else "/"
+
+            f = self.kb_file_repo.get_kb_file_by_path(kb_id, parent_path, name)
+            if not f:
+                return False, "文件不存在"
+
+            update_kwargs = {}
+            if body.name is not None:
+                update_kwargs["name"] = body.name
+            if body.status is not None:
+                update_kwargs["status"] = body.status
+
+            if update_kwargs:
+                updated = self.kb_file_repo.update_kb_file(f.id, **update_kwargs)
+                if updated:
+                    return True, {
+                        "file_id": updated.id,
+                        "name": updated.name,
+                        "file_type": updated.file_type,
+                        "status": updated.status,
+                    }
+
+            return True, {
+                "file_id": f.id,
+                "name": f.name,
+                "file_type": f.file_type,
+                "status": f.status,
+            }
         except Exception as e:
             return False, str(e)

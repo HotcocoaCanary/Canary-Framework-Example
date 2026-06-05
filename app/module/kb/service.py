@@ -8,8 +8,7 @@ from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
 from app.module.db.repository.kb_member_repostory import KBMemberRepository
 from app.module.db.repository.knowledge_bases_repository import KnowledgeBaseRepository
-from app.common.response import R
-from app.module.kb.schema import CreateKbRequest, UpdateKbRequest, KbResponse, ShareLinkResponse, StorageResponse
+from app.module.kb.schema import CreateKbRequest, UpdateKbRequest, KbResponse, ShareLinkResponse
 from app.module.db.models import KnowledgeBase, KbMember
 
 
@@ -170,15 +169,6 @@ class KbService(ServiceBase):
         except Exception as e:
             return False, str(e)
 
-    def get_shared_kb(self, share_token: str) -> tuple[bool, KbResponse | str]:
-        try:
-            kb = self.knowledge_base_repo.get_knowledge_base_by_share_token(share_token)
-            if not kb:
-                return False, "分享链接无效"
-            return True, self._kb_to_response(kb)
-        except Exception as e:
-            return False, str(e)
-
     def join_kb(self, kb_id: str, user_id: str = "test_user") -> tuple[bool, str]:
         try:
             kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
@@ -194,12 +184,4 @@ class KbService(ServiceBase):
         except Exception as e:
             return False, str(e)
 
-    def get_user_storage(self, user_id: str = "test_user") -> tuple[bool, StorageResponse | str]:
-        try:
-            used = self.kb_file_repo.total_size_by_owner(user_id)
-            used_mb = used / (1024 * 1024)
-            used_formatted = f"{used_mb:.2f} MB" if used > 0 else "0 MB"
-            
-            return True, StorageResponse(used_bytes=used, used_formatted=used_formatted)
-        except Exception as e:
-            return False, str(e)
+
