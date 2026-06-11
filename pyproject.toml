@@ -7,9 +7,9 @@ dependencies = [
     "sqlmodel[asyncio]>=0.0.22",
     "asyncpg>=0.30.0",
     "pgvector>=0.2.0",
-    "litellm>=1.60.0",
-    "langgraph>=0.3.0",
-    "markitdown>=0.0.1",
+    "litellm>=1.88.1",
+    "langgraph>=1.2.4",
+    "markitdown>=0.1.6",
     "oss2>=2.19.0",
     "httpx>=0.28.0",
     "nanoid>=2.0.0",
@@ -18,7 +18,7 @@ dependencies = [
     "alembic>=1.18.4",
     "fastapi>=0.136.3",
     "pydantic-settings>=2.14.1",
-    "uvicorn>=0.48.0",
+    "uvicorn>=0.49.0",
     "openai>=2.38.0",
 ]
 

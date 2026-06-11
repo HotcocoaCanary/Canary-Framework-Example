@@ -27,8 +27,6 @@ class AppConfig(CanaryConfig, ServiceBase):
     _cf_hooks = None
     _cf_parent_registry = None
 
-    host: str = Field(default_factory=lambda: os.environ.get("HOST", "localhost"))
-    port: int = Field(default_factory=lambda: int(os.environ.get("PORT", "8010")))
     log_level: str = Field(default_factory=lambda: os.environ.get("CF_LOG_LEVEL", "DEBUG"))
 
     postgres_user: str = Field(default_factory=lambda: os.environ.get("POSTGRES_USER", "postgres"))

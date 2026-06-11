@@ -7,7 +7,7 @@ from canary_framework.core.service import ServiceBase
 from sqlalchemy import create_engine
 from sqlmodel import Session as SqlSession, select
 
-from app.config import AppConfig
+from config import AppConfig
 from app.module.db.models import Session
 
 

@@ -1,7 +1,7 @@
 from canary_framework import module
 from canary_framework.core.module import ModuleBase
 
-from app.config import AppConfig
+from config import AppConfig
 from app.module.db.repository.collection_item_repository import CollectionItemRepository
 from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository

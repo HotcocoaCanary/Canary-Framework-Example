@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import Optional, Any, Sequence
+from typing import Any, Sequence
 
 from canary_framework import service, after_init
 from canary_framework.core.service import ServiceBase
 from sqlalchemy import create_engine
 from sqlmodel import Session, select
 
-from app.config import AppConfig
+from config import AppConfig
 from app.module.db.models import KbMember
 
 
