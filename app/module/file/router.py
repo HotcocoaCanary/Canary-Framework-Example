@@ -1,16 +1,18 @@
-from canary_framework import router, get, post, delete, patch
-from canary_framework.core.router import RouterBase
+from canary_framework import service
+from canary_framework.core.router import Router
+from canary_framework.core.service import ServiceBase
 
 from app.common.response import R, PageR
 from app.module.file.schema import FileResponse, CreateFileRequest, PatchFileRequest
 from app.module.file.service import FileService
 
 
-@router(prefix='/file', tags=["file"])
-class FileRouter(RouterBase):
+@service()
+class FileRouter(ServiceBase):
+    router = Router(prefix='/file', tags=["file"])
     file_service: FileService
 
-    @post(
+    @router.post(
         '/{kb_id}/{folder_path:path}',
         summary="上传文件/创建文件夹",
         description="在指定路径创建文件或文件夹，若父目录不存在则自动创建",
@@ -21,7 +23,7 @@ class FileRouter(RouterBase):
         success, result = self.file_service.create(kb_id, folder_path, body)
         return R.ok(result) if success else R.fail(result)
 
-    @get(
+    @router.get(
         '/{kb_id}/{folder_path:path}?page={page}&size={size}',
         summary="文件列表",
         description="获取指定路径下的所有文件和文件夹",
@@ -31,7 +33,7 @@ class FileRouter(RouterBase):
         success, result = self.file_service.list_nodes(kb_id, folder_path, page=page, size=size)
         return R.ok(result) if success else R.fail(result)
 
-    @delete(
+    @router.delete(
         '/{kb_id}/{folder_path:path}',
         summary="删除文件/文件夹",
         response_model=R[str],
@@ -40,7 +42,7 @@ class FileRouter(RouterBase):
         success, result = self.file_service.delete_by_path(kb_id, folder_path)
         return R.ok(result) if success else R.fail(result)
 
-    @patch(
+    @router.patch(
         '/{kb_id}/{folder_path:path}',
         summary="修改文件信息",
         request_model=PatchFileRequest,

@@ -1,21 +1,17 @@
-from canary_framework import after_init
-from canary_framework import service
+from canary_framework import service, before_startup
 from canary_framework.core.service import ServiceBase
 from openai import OpenAI
-
-from config import AppConfig
 
 
 @service()
 class QwenService(ServiceBase):
-    config: AppConfig
 
     def __init__(self):
         super().__init__()
         self.client = None
 
-    @after_init
-    def _setup_client(self):
+    @before_startup
+    def after_init(self):
         self.client = OpenAI(
             api_key=self.config.DASHSCOPE_API_KEY,
             base_url=self.config.DASHSCOPE_API_BASE

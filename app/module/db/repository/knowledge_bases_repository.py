@@ -2,21 +2,19 @@ import uuid
 from datetime import datetime
 from typing import Any, Sequence, Optional
 
-from canary_framework import service, after_init
+from canary_framework import service
 from canary_framework.core.service import ServiceBase
 from sqlalchemy import create_engine, or_
 from sqlmodel import Session, select
 
-from config import AppConfig
 from app.module.db.models import KnowledgeBase
 
 
 @service()
 class KnowledgeBaseRepository(ServiceBase):
-    config: AppConfig
 
-    @after_init
-    async def after_init(self):
+    def init(self):
+        super().init()
         self.engine = create_engine(self.config.database_url, echo=True)
 
     def get_session(self):
@@ -72,19 +70,23 @@ class KnowledgeBaseRepository(ServiceBase):
 
     def list_knowledge_bases(self, created_by: str, skip: int = 0, limit: int = 100) -> Sequence[Any]:
         with self.get_session() as session:
-            statement = select(KnowledgeBase).where(KnowledgeBase.created_by == created_by).order_by(KnowledgeBase.updated_at.desc()).offset(skip).limit(limit)
+            statement = select(KnowledgeBase).where(KnowledgeBase.created_by == created_by).order_by(
+                KnowledgeBase.updated_at.desc()).offset(skip).limit(limit)
             return session.exec(statement).all()
 
-    def list_public_knowledge_bases(self, keyword: Optional[str] = None, skip: int = 0, limit: int = 100) -> tuple[Sequence[Any], int]:
+    def list_public_knowledge_bases(self, keyword: Optional[str] = None, skip: int = 0, limit: int = 100) -> tuple[
+        Sequence[Any], int]:
         with self.get_session() as session:
             statement = select(KnowledgeBase).where(KnowledgeBase.permission == "shared")
             if keyword:
-                statement = statement.where(or_(KnowledgeBase.name.contains(keyword), KnowledgeBase.description.contains(keyword)))
-            
+                statement = statement.where(
+                    or_(KnowledgeBase.name.contains(keyword), KnowledgeBase.description.contains(keyword)))
+
             count_statement = select(KnowledgeBase).where(KnowledgeBase.permission == "shared")
             if keyword:
-                count_statement = count_statement.where(or_(KnowledgeBase.name.contains(keyword), KnowledgeBase.description.contains(keyword)))
-            
+                count_statement = count_statement.where(
+                    or_(KnowledgeBase.name.contains(keyword), KnowledgeBase.description.contains(keyword)))
+
             total = len(session.exec(count_statement).all())
             statement = statement.order_by(KnowledgeBase.updated_at.desc()).offset(skip).limit(limit)
             return session.exec(statement).all(), total

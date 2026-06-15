@@ -3,5 +3,6 @@ from canary_framework.core.service import ServiceBase
 
 
 @service()
-class OssService(ServiceBase):
-    pass
+class KbService(ServiceBase):
+    def web_search(self):
+        pass

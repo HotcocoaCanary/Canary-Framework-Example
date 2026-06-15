@@ -2,21 +2,19 @@ import uuid
 from datetime import datetime
 from typing import Any, Sequence, Optional
 
-from canary_framework import service, after_init
+from canary_framework import service
 from canary_framework.core.service import ServiceBase
 from sqlalchemy import create_engine, and_
 from sqlmodel import Session, select
 
-from config import AppConfig
 from app.module.db.models import KbFile
 
 
 @service()
 class KBFileRepository(ServiceBase):
-    config: AppConfig
 
-    @after_init
-    async def after_init(self):
+    def init(self):
+        super().init()
         self.engine = create_engine(self.config.database_url, echo=True)
 
     def get_session(self):
@@ -26,8 +24,8 @@ class KBFileRepository(ServiceBase):
     def generate_id() -> str:
         return "file_" + uuid.uuid4().hex[:20]
 
-    def create_kb_file(self, kb_id: str, name: str, created_by: str, file_type: Optional[str] = None, 
-                       file_size: Optional[int] = None, parent_path: str = "/", 
+    def create_kb_file(self, kb_id: str, name: str, created_by: str, file_type: Optional[str] = None,
+                       file_size: Optional[int] = None, parent_path: str = "/",
                        oss_url: Optional[str] = None, status: str = "pending",
                        parsed_text: Optional[str] = None, error_msg: Optional[str] = None) -> KbFile:
         with self.get_session() as session:

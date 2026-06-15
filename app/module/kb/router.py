@@ -1,16 +1,18 @@
-from canary_framework import router, get, post, delete, patch
-from canary_framework.core.router import RouterBase
+from canary_framework import service
+from canary_framework.core.router import Router
+from canary_framework.core.service import ServiceBase
 
 from app.common.response import R, PageR
 from app.module.kb.schema import CreateKbRequest, KbResponse, UpdateKbRequest, ShareLinkResponse
 from app.module.kb.service import KbService
 
 
-@router(prefix='/kb', tags=["kb"])
-class KBRouter(RouterBase):
+@service()
+class KBRouter(ServiceBase):
+    router = Router(prefix='/kb', tags=["kb"])
     kb_service: KbService
 
-    @post(
+    @router.post(
         '/create',
         summary="创建知识库",
         request_model=CreateKbRequest,
@@ -20,7 +22,7 @@ class KBRouter(RouterBase):
         success, result = self.kb_service.create_kb(body)
         return R.ok(result) if success else R.fail(result)
 
-    @get(
+    @router.get(
         '/list?page={page}&size={size}',
         summary="知识库列表",
         response_model=PageR[KbResponse],
@@ -29,7 +31,7 @@ class KBRouter(RouterBase):
         success, result = self.kb_service.list_user_kbs(page=page, size=size)
         return R.ok(result) if success else R.fail(result)
 
-    @delete(
+    @router.delete(
         '/{kb_id}/dalete',
         summary="删除知识库",
         response_model=R[str],
@@ -38,7 +40,7 @@ class KBRouter(RouterBase):
         success, result = self.kb_service.delete_kb(kb_id)
         return R.ok(result) if success else R.fail(result)
 
-    @patch(
+    @router.patch(
         '/{kb_id}/update',
         summary="更新知识库",
         request_model=UpdateKbRequest,
@@ -48,7 +50,7 @@ class KBRouter(RouterBase):
         success, result = self.kb_service.update_kb(kb_id, body)
         return R.ok(result) if success else R.fail(result)
 
-    @get(
+    @router.get(
         '/{kb_id}/join',
         summary="加入知识库",
         response_model=R[str],
@@ -57,7 +59,7 @@ class KBRouter(RouterBase):
         success, result = self.kb_service.join_kb(kb_id)
         return R.ok(result) if success else R.fail(result)
 
-    @get(
+    @router.get(
         '/{kb_id}/shared',
         summary="获取分享链接",
         response_model=R[ShareLinkResponse],
@@ -66,7 +68,7 @@ class KBRouter(RouterBase):
         success, result = self.kb_service.create_share_link(kb_id)
         return R.ok(result) if success else R.fail(result)
 
-    @post(
+    @router.post(
         '/public/list?page={page}&size={size}',
         summary="公开知识库列表",
         response_model=PageR[KbResponse],

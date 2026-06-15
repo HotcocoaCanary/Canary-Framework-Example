@@ -1,16 +1,18 @@
-from canary_framework import router, get, post, delete
-from canary_framework.core.router import RouterBase
+from canary_framework import service
+from canary_framework.core.router import Router
+from canary_framework.core.service import ServiceBase
 
-from app.module.collection.schema import SubmitUrlRequest, CollectionItemResponse
 from app.common.response import R, PageR
+from app.module.collection.schema import SubmitUrlRequest, CollectionItemResponse
 from app.module.collection.service import CollService
 
 
-@router(prefix='/coll', tags=["coll"])
-class CollRouter(RouterBase):
+@service()
+class CollRouter(ServiceBase):
+    router = Router(prefix='/coll', tags=["coll"])
     coll_service: CollService
 
-    @post(
+    @router.post(
         '/create',
         summary="创建采集任务",
         request_model=SubmitUrlRequest,
@@ -20,7 +22,7 @@ class CollRouter(RouterBase):
         success, result = self.coll_service.submit_url(body)
         return R.ok(result) if success else R.fail(result)
 
-    @get(
+    @router.get(
         '/list?page={page}&size={size}',
         summary="采集列表",
         response_model=PageR[CollectionItemResponse],
@@ -29,7 +31,7 @@ class CollRouter(RouterBase):
         success, result = self.coll_service.list_items(page=page, size=size)
         return R.ok(result) if success else R.fail(result)
 
-    @delete(
+    @router.delete(
         '/{coll_id}/delete',
         summary="删除采集",
         response_model=R[str],

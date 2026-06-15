@@ -4,12 +4,12 @@ from typing import Optional
 from canary_framework import service
 from canary_framework.core.service import ServiceBase
 
+from app.module.db.models import KnowledgeBase
 from app.module.db.repository.kb_chunk_repository import KbChunkRepository
 from app.module.db.repository.kb_file_repository import KBFileRepository
 from app.module.db.repository.kb_member_repostory import KBMemberRepository
 from app.module.db.repository.knowledge_bases_repository import KnowledgeBaseRepository
 from app.module.kb.schema import CreateKbRequest, UpdateKbRequest, KbResponse, ShareLinkResponse
-from app.module.db.models import KnowledgeBase, KbMember
 
 
 @service()
@@ -49,26 +49,26 @@ class KbService(ServiceBase):
     def list_user_kbs(self, user_id: str = "test_user", page: int = 1, size: int = 20) -> tuple[bool, dict]:
         try:
             skip = (page - 1) * size
-            
+
             member_kb_ids = self.kb_member_repo.list_user_kbs(user_id)
             owned_kbs = self.knowledge_base_repo.list_knowledge_bases(user_id, skip=0, limit=10000)
-            
+
             all_kb_ids = set(member_kb_ids) | {kb.id for kb in owned_kbs}
-            
+
             all_kbs = []
             for kb_id in all_kb_ids:
                 kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
                 if kb:
                     all_kbs.append(kb)
-            
+
             total = len(all_kbs)
             all_kbs.sort(key=lambda x: x.updated_at, reverse=True)
             start = skip
             records = all_kbs[start:start + size]
-            
+
             result = [self._kb_to_response(kb).model_dump() for kb in records]
             pages = (total + size - 1) // size if size > 0 else 0
-            
+
             return True, {
                 "records": result,
                 "total": total,
@@ -84,23 +84,24 @@ class KbService(ServiceBase):
             kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
             if not kb:
                 return False, "知识库不存在"
-            
+
             member = self.kb_member_repo.get_member(kb_id, user_id)
             if kb.permission == "private" and not member:
                 return False, "无权限"
-            
+
             return True, self._kb_to_response(kb)
         except Exception as e:
             return False, str(e)
 
-    def update_kb(self, kb_id: str, request: UpdateKbRequest, user_id: str = "test_user") -> tuple[bool, KbResponse | str]:
+    def update_kb(self, kb_id: str, request: UpdateKbRequest, user_id: str = "test_user") -> tuple[
+        bool, KbResponse | str]:
         try:
             kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
             if not kb:
                 return False, "知识库不存在"
             if kb.created_by != user_id:
                 return False, "仅创建者可编辑"
-            
+
             update_kwargs = {}
             if request.name is not None:
                 update_kwargs["name"] = request.name
@@ -110,7 +111,7 @@ class KbService(ServiceBase):
                 if request.permission not in ("private", "shared"):
                     return False, "permission 仅允许 private/shared"
                 update_kwargs["permission"] = request.permission
-            
+
             kb = self.knowledge_base_repo.update_knowledge_base(kb_id, **update_kwargs)
             return True, self._kb_to_response(kb)
         except Exception as e:
@@ -123,12 +124,12 @@ class KbService(ServiceBase):
                 return False, "知识库不存在"
             if kb.created_by != user_id:
                 return False, "仅创建者可操作"
-            
+
             self.kb_chunk_repo.delete_chunks_by_kb(kb_id)
             self.kb_file_repo.delete_files_by_kb(kb_id)
             self.kb_member_repo.remove_members_by_kb(kb_id)
             self.knowledge_base_repo.delete_knowledge_base(kb_id)
-            
+
             return True, "删除成功"
         except Exception as e:
             return False, str(e)
@@ -142,11 +143,11 @@ class KbService(ServiceBase):
                 return False, "仅创建者可操作"
             if kb.permission != "shared":
                 return False, "仅共享知识库可生成分享链接"
-            
+
             share_token = uuid.uuid4().hex[:16]
             kb = self.knowledge_base_repo.update_knowledge_base(kb_id, share_token=share_token)
             share_url = f"/shared/{share_token}"
-            
+
             return True, ShareLinkResponse(share_url=share_url, share_token=share_token)
         except Exception as e:
             return False, str(e)
@@ -155,10 +156,10 @@ class KbService(ServiceBase):
         try:
             skip = (page - 1) * size
             kbs, total = self.knowledge_base_repo.list_public_knowledge_bases(keyword=keyword, skip=skip, limit=size)
-            
+
             records = [self._kb_to_response(kb).model_dump() for kb in kbs]
             pages = (total + size - 1) // size if size > 0 else 0
-            
+
             return True, {
                 "records": records,
                 "total": total,
@@ -174,14 +175,12 @@ class KbService(ServiceBase):
             kb = self.knowledge_base_repo.get_knowledge_base(kb_id)
             if not kb:
                 return False, "知识库不存在"
-            
+
             existing = self.kb_member_repo.get_member(kb_id, user_id)
             if existing:
                 return True, "已加入"
-            
+
             self.kb_member_repo.add_member(kb_id, user_id, role="member")
             return True, "加入成功"
         except Exception as e:
             return False, str(e)
-
-
