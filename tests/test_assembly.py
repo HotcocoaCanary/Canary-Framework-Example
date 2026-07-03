@@ -7,7 +7,7 @@ EXPECTED_PATHS = {
     "/coll/create",
     "/coll/list",
     "/coll/{coll_id}/delete",
-    "/file/{kb_id}/{folder_path:path}",
+    "/file/{kb_id}",
     "/kb/create",
     "/kb/list",
     "/kb/public/list",
@@ -59,11 +59,10 @@ def test_docs_endpoints(client, path):
     assert client.get(path).status_code == 200
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="doc/bug/001：OpenAPI 路径泄漏 Starlette 转换器语法 {folder_path:path}",
-)
 def test_openapi_paths_are_valid_openapi_templates(app):
-    """矩阵 #9（OpenAPI 部分）：OpenAPI path template 不允许 :converter 后缀。"""
+    """OpenAPI path template 不允许 :converter 后缀。
+
+    应用已改用查询参数（不再使用 {folder_path:path}），所有路径均为合法 template。
+    """
     for p in app.openapi()["paths"]:
         assert ":" not in p, f"路径含转换器语法: {p}"

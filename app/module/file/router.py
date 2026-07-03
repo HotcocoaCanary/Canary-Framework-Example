@@ -12,10 +12,14 @@ class FileRouter(ServiceBase):
     router = Router(prefix='/file', tags=["file"])
     file_service: FileService
 
+    # 说明：folder_path 采用查询参数而非路径转换器 {folder_path:path}。
+    # cf 不解析 Starlette 转换器语法（详见 doc/verification-0.5.2.md 的「已知框架限制」），
+    # 查询参数值允许含斜杠，可承载多级路径，且在 OpenAPI 中生成合法 template。
+
     @router.post(
-        '/{kb_id}/{folder_path:path}',
+        '/{kb_id}?folder_path={folder_path}',
         summary="上传文件/创建文件夹",
-        description="在指定路径创建文件或文件夹，若父目录不存在则自动创建",
+        description="在指定路径创建文件或文件夹，若父目录不存在则自动创建；folder_path 为查询参数，可含多级路径",
         request_model=CreateFileRequest,
         response_model=R[dict],
     )
@@ -24,17 +28,17 @@ class FileRouter(ServiceBase):
         return R.ok(result) if success else R.fail(result)
 
     @router.get(
-        '/{kb_id}/{folder_path:path}?page={page}&size={size}',
+        '/{kb_id}?folder_path={folder_path}&page={page}&size={size}',
         summary="文件列表",
-        description="获取指定路径下的所有文件和文件夹",
+        description="获取指定路径下的所有文件和文件夹；folder_path 省略或为空表示根目录",
         response_model=PageR[FileResponse],
     )
-    async def list_nodes(self, kb_id: str, folder_path: str, page: int = 1, size: int = 20):
+    async def list_nodes(self, kb_id: str, folder_path: str = "", page: int = 1, size: int = 20):
         success, result = self.file_service.list_nodes(kb_id, folder_path, page=page, size=size)
         return R.ok(result) if success else R.fail(result)
 
     @router.delete(
-        '/{kb_id}/{folder_path:path}',
+        '/{kb_id}?folder_path={folder_path}',
         summary="删除文件/文件夹",
         response_model=R[str],
     )
@@ -43,7 +47,7 @@ class FileRouter(ServiceBase):
         return R.ok(result) if success else R.fail(result)
 
     @router.patch(
-        '/{kb_id}/{folder_path:path}',
+        '/{kb_id}?folder_path={folder_path}',
         summary="修改文件信息",
         request_model=PatchFileRequest,
         response_model=R[dict],

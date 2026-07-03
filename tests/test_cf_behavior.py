@@ -38,10 +38,6 @@ class Toy(ServiceBase):
     async def create_dict(self, item: dict):
         return item, 201
 
-    @router.get("/conv/{p:path}")
-    async def path_converter(self, p: str):
-        return {"p": p}
-
     @router.get("/silent?page={page}")
     async def silent(self, page: int = 1, keyword: str | None = None):
         # keyword 未在路径字符串声明 —— 按文档语义永远保持默认值
@@ -98,17 +94,6 @@ def test_dict_body_param_binds(toy_client):
     """web.md 的示例写法 `item: dict` —— 按文档应正常绑定。"""
     resp = toy_client.post("/toy/dicts", json={"a": 1})
     assert resp.status_code == 201
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="doc/bug/001：{param:path} 转换器参数不被 _PARAM_PATTERN 识别 → TypeError 500",
-)
-def test_path_converter_param_binds(toy_client):
-    """最小复现：{p:path} 参数应绑定多级路径（当前 500，见 doc/bug/001）。"""
-    resp = toy_client.get("/toy/conv/a/b/c")
-    assert resp.status_code == 200
-    assert resp.json() == {"p": "a/b/c"}
 
 
 def test_undeclared_query_param_keeps_default(toy_client):

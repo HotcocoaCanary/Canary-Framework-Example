@@ -4,8 +4,6 @@
 因此 200 + R 结构 == 路由匹配、参数绑定、handler 调用全部成功。
 """
 
-import pytest
-
 
 def _is_r_payload(body: dict) -> bool:
     return {"code", "data", "msg"} <= set(body.keys())
@@ -32,30 +30,35 @@ def test_path_param_plus_body_patch(client):
     assert _is_r_payload(resp.json())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="doc/bug/001：{param:path} 转换器参数不被 cf 识别，绑定缺参 → TypeError 500",
-)
-def test_path_converter_route_matching(client):
-    """矩阵 #9（路由部分）：{folder_path:path} 匹配多级路径并与 query 共存。
+def test_file_list_with_folder_query(client):
+    """/file 列表：folder_path 作为查询参数（含多级路径 a/b/c），与 page/size 共存。
 
-    Starlette 层路由能匹配（非 404），但 cf 的 _PARAM_PATTERN 不识别
-    转换器语法，folder_path 永不绑定，当前实际返回 500。
+    cf 不解析 Starlette 转换器语法，故 folder_path 由路径参数改为查询参数
+    （查询值允许含斜杠）。这是「应用侧规避」而非依赖框架修复。
     """
-    resp = client.get("/file/kb_x/a/b/c?page=1&size=10")
+    resp = client.get("/file/kb_x?folder_path=a/b/c&page=1&size=10")
     assert resp.status_code == 200
     assert _is_r_payload(resp.json())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="doc/bug/001：{param:path} 转换器参数不被 cf 识别，绑定缺参 → TypeError 500",
-)
-def test_path_converter_delete(client):
-    """{folder_path:path} 在 DELETE 方法下同样匹配（当前同样 500，见 doc/bug/001）。"""
-    resp = client.delete("/file/kb_x/a/b/c")
+def test_file_list_root_default(client):
+    """folder_path 省略 → 根目录（可选查询参数），不报错。"""
+    resp = client.get("/file/kb_x")
     assert resp.status_code == 200
     assert _is_r_payload(resp.json())
+
+
+def test_file_delete_with_folder_query(client):
+    """DELETE /file：folder_path 查询参数（必填），含多级路径。"""
+    resp = client.delete("/file/kb_x?folder_path=a/b/c")
+    assert resp.status_code == 200
+    assert _is_r_payload(resp.json())
+
+
+def test_file_delete_missing_folder_is_422(client):
+    """DELETE 缺失必填 folder_path → 422。"""
+    resp = client.delete("/file/kb_x")
+    assert resp.status_code == 422
 
 
 def test_post_with_body_only(client):
