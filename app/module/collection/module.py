@@ -1,15 +1,8 @@
-from canary_framework import module
-from canary_framework.core.module import ModuleBase
+from canary_framework import cocoa
 
-from app.module.collection.router import CollRouter
 from app.module.collection.service import CollService
 
 
-@module(
-    services=[
-        CollService,
-        CollRouter,
-    ],
-)
-class CollModule(ModuleBase):
+@cocoa(deps=[CollService])
+class CollModule:
     pass

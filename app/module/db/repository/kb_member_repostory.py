@@ -1,20 +1,20 @@
 from datetime import datetime
 from typing import Any, Sequence
 
-from canary_framework import service
-from canary_framework.core.service import ServiceBase
+from canary_framework import cocoa, on_start
 from sqlalchemy import create_engine
 from sqlmodel import Session, select
 
 from app.module.db.models import KbMember
+from config import AppConfig
 
 
-@service()
-class KBMemberRepository(ServiceBase):
+@cocoa(deps=[AppConfig])
+class KBMemberRepository:
 
-    def init(self):
-        super().init()
-        self.engine = create_engine(self.config.database_url, echo=True)
+    @on_start
+    async def setup(self) -> None:
+        self.engine = create_engine(self.app_config.database_url, echo=True)
 
     def get_session(self):
         return Session(self.engine)

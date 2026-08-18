@@ -1,4 +1,4 @@
-"""装配层：显式前缀、docs 端点、openapi() 记忆化、$ref 完整性。"""
+"""Assembly-level checks for the migrated Canary 0.9 application."""
 
 import pytest
 
@@ -11,7 +11,7 @@ EXPECTED_PATHS = {
     "/kb/create",
     "/kb/list",
     "/kb/public/list",
-    "/kb/{kb_id}/dalete",
+    "/kb/{kb_id}/delete",
     "/kb/{kb_id}/join",
     "/kb/{kb_id}/shared",
     "/kb/{kb_id}/update",
@@ -30,11 +30,11 @@ def test_no_service_name_namespace(app):
         assert "Router" not in p
 
 
-def test_openapi_public_and_memoized(app):
-    """矩阵 #3：openapi() 是公开方法且记忆化（两次调用同一对象）。"""
+def test_openapi_public_and_reproducible(app):
+    """The OpenAPI document is public and stable across calls."""
     first = app.openapi()
     second = app.openapi()
-    assert first is second
+    assert first == second
 
 
 def test_openapi_refs_resolvable(app):

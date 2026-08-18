@@ -2,20 +2,20 @@ import uuid
 from datetime import datetime
 from typing import Optional, Any, Sequence
 
-from canary_framework import service
-from canary_framework.core.service import ServiceBase
+from canary_framework import cocoa, on_start
 from sqlalchemy import create_engine
 from sqlmodel import Session as SqlSession, select
 
 from app.module.db.models import Session
+from config import AppConfig
 
 
-@service()
-class SessionRepository(ServiceBase):
+@cocoa(deps=[AppConfig])
+class SessionRepository:
 
-    def init(self):
-        super().init()
-        self.engine = create_engine(self.config.database_url, echo=True)
+    @on_start
+    async def setup(self) -> None:
+        self.engine = create_engine(self.app_config.database_url, echo=True)
 
     def get_session(self):
         return SqlSession(self.engine)

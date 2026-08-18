@@ -1,15 +1,9 @@
-from canary_framework import module
-from canary_framework.core.module import ModuleBase
+from canary_framework import cocoa
 
 from app.module.kb.router import KBRouter
 from app.module.kb.service import KbService
 
 
-@module(
-    services=[
-        KbService,
-        KBRouter,
-    ],
-)
-class KBModule(ModuleBase):
+@cocoa(deps=[KbService])
+class KBModule:
     pass

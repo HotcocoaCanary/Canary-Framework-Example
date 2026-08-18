@@ -1,8 +1,10 @@
-"""共享 fixture：装配真实 AppModule。
+"""Shared fixtures that assemble and start the real ``AppModule``.
 
-注意：TestClient 不使用 with 上下文（不触发 lifespan/startup），
-测试因此不依赖数据库与网络。
+Tests are deliberately run without a database, so service-level exceptions are
+caught by the application services and surfaced as ``R.fail`` payloads.
 """
+
+import asyncio
 
 import pytest
 from starlette.testclient import TestClient
@@ -13,11 +15,12 @@ from main import AppModule
 @pytest.fixture(scope="session")
 def app():
     instance = AppModule()
-    instance.init()
+    asyncio.run(instance.init())
+    asyncio.run(instance.start())
     return instance
 
 
 @pytest.fixture(scope="session")
-def client(app):
-    # raise_server_exceptions=False：handler 内未处理异常表现为 500 响应而非测试崩溃
-    return TestClient(app.asgi_app, raise_server_exceptions=False)
+def client():
+    with TestClient(AppModule()) as test_client:
+        yield test_client

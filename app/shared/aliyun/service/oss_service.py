@@ -1,7 +1,0 @@
-from canary_framework import service
-from canary_framework.core.service import ServiceBase
-
-
-@service()
-class OssService(ServiceBase):
-    pass

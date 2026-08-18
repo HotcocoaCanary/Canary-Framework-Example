@@ -1,57 +1,40 @@
-from canary_framework import service
-from canary_framework.core.router import Router
-from canary_framework.core.service import ServiceBase
+from canary_framework.web import delete, get, patch, post
 
 from app.common.response import R, PageR
 from app.module.file.schema import FileResponse, CreateFileRequest, PatchFileRequest
 from app.module.file.service import FileService
 
 
-@service()
-class FileRouter(ServiceBase):
-    router = Router(prefix='/file', tags=["file"])
+class FileRouter:
     file_service: FileService
 
-    # 说明：folder_path 采用查询参数而非路径转换器 {folder_path:path}。
-    # cf 不解析 Starlette 转换器语法（详见 doc/verification-0.5.2.md 的「已知框架限制」），
-    # 查询参数值允许含斜杠，可承载多级路径，且在 OpenAPI 中生成合法 template。
+    # Canary 0.9 uses ordinary Starlette path templates.  ``folder_path`` is
+    # intentionally a query parameter so it can contain nested ``/`` values.
 
-    @router.post(
-        '/{kb_id}?folder_path={folder_path}',
-        summary="上传文件/创建文件夹",
-        description="在指定路径创建文件或文件夹，若父目录不存在则自动创建；folder_path 为查询参数，可含多级路径",
-        request_model=CreateFileRequest,
-        response_model=R[dict],
+    @post(
+        '/file/{kb_id}',
     )
-    async def create(self, kb_id: str, folder_path: str, body: CreateFileRequest):
+    async def create(self, kb_id: str, folder_path: str, body: CreateFileRequest) -> R[dict]:
         success, result = self.file_service.create(kb_id, folder_path, body)
         return R.ok(result) if success else R.fail(result)
 
-    @router.get(
-        '/{kb_id}?folder_path={folder_path}&page={page}&size={size}',
-        summary="文件列表",
-        description="获取指定路径下的所有文件和文件夹；folder_path 省略或为空表示根目录",
-        response_model=PageR[FileResponse],
+    @get(
+        '/file/{kb_id}',
     )
-    async def list_nodes(self, kb_id: str, folder_path: str = "", page: int = 1, size: int = 20):
+    async def list_nodes(self, kb_id: str, folder_path: str = "", page: int = 1, size: int = 20) -> PageR[FileResponse]:
         success, result = self.file_service.list_nodes(kb_id, folder_path, page=page, size=size)
         return R.ok(result) if success else R.fail(result)
 
-    @router.delete(
-        '/{kb_id}?folder_path={folder_path}',
-        summary="删除文件/文件夹",
-        response_model=R[str],
+    @delete(
+        '/file/{kb_id}',
     )
-    async def delete_by_path(self, kb_id: str, folder_path: str):
+    async def delete_by_path(self, kb_id: str, folder_path: str) -> R[str]:
         success, result = self.file_service.delete_by_path(kb_id, folder_path)
         return R.ok(result) if success else R.fail(result)
 
-    @router.patch(
-        '/{kb_id}?folder_path={folder_path}',
-        summary="修改文件信息",
-        request_model=PatchFileRequest,
-        response_model=R[dict],
+    @patch(
+        '/file/{kb_id}',
     )
-    async def update_by_path(self, kb_id: str, folder_path: str, body: PatchFileRequest):
+    async def update_by_path(self, kb_id: str, folder_path: str, body: PatchFileRequest) -> R[dict]:
         success, result = self.file_service.update_by_path(kb_id, folder_path, body)
         return R.ok(result) if success else R.fail(result)

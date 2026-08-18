@@ -1,12 +1,19 @@
 from pydantic import computed_field
-from pydantic_settings import SettingsConfigDict
-from canary_framework import config as cf_config
-from canary_framework.common.config import CanaryConfig
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from canary_framework import cocoa
 
 
-@cf_config()
-class AppConfig(CanaryConfig):
+@cocoa
+class AppConfig(BaseSettings):
+    """Application settings exposed as a Canary 0.9 cocoa dependency.
+
+    Canary Framework 0.9 intentionally keeps configuration out of the core;
+    settings are ordinary Python objects and are injected through ``deps``.
+    """
+
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
+
+    log_level: str = "DEBUG"
 
     postgres_user: str = "postgres"
     postgres_password: str = "postgres"
