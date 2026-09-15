@@ -1,0 +1,31 @@
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: ca_postgres
+    ports:
+      # 本机 5432 常被占用；用 POSTGRES_PORT 换一个宿主端口，容器内仍是 5432
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ly_library}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  app:
+    build: .
+    container_name: ca_app
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    ports:
+      - "${PORT:-8010}:8010"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

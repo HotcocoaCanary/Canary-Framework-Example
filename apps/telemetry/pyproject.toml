@@ -1,0 +1,28 @@
+[project]
+name = "canary-telemetry"
+version = "1.0.0"
+description = "场景二：设备遥测采集与告警 —— 时间驱动的常驻守护进程，纯核心，无 web 依赖"
+requires-python = ">=3.12, <3.13"
+dependencies = [
+    # 场景二是纯核心：canary-framework 0.10.0 本身零第三方依赖，
+    # 这里除了 pydantic-settings 与 httpx 之外不再需要任何 web 相关的包。
+    "canary-framework>=0.10.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.15.0",
+    "httpx>=0.28.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["telemetry"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = ["tests"]
+asyncio_mode = "auto"
