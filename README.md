@@ -44,8 +44,8 @@ telemetry 用合成波形 + 内存存储。接真实的 PostgreSQL/pgvector、LL
 启动失败时直接杀进程，把问题掩盖了。换成守护进程形态，停止语义上的问题立刻现形。
 
 **修复的代价**也需要多场景才看得清：最终版删掉 `provide=` 之后，
-[场景一](apps/library/app/infra/ai.py)（选本地还是远端模型）与
-[场景二](apps/telemetry/telemetry/source/sample_source.py)（选合成波形还是 HTTP 采集）
+[场景一](examples/library/app/infra/ai.py)（选本地还是远端模型）与
+[场景二](examples/telemetry/telemetry/source/sample_source.py)（选合成波形还是 HTTP 采集）
 **同时**长回了同一形状的配置分支，而场景二的整套时间驱动测试则被迫自己搭替换缝
 （`telemetry/testing.py::swap_clock`）。一边看像是项目的接线风格，两边一起看才是框架的取舍。
 详见 [`doc/scenario-matrix.md`](doc/scenario-matrix.md)。
