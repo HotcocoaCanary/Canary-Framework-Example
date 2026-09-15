@@ -1,0 +1,36 @@
+[project]
+name = "canary-library"
+version = "1.0.0"
+description = "场景一：智能图书馆管理系统 —— 请求驱动的 HTTP API + RAG"
+requires-python = ">=3.12, <3.13"
+dependencies = [
+    "canary-framework>=0.10.0",
+    "sqlmodel==0.0.42",
+    "aiosqlite>=0.20.0",
+    "asyncpg>=0.30.0",
+    "pgvector==0.5.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.13.4",
+    "sqlalchemy>=2.0.52",
+    "alembic>=1.19.1",
+    "pydantic-settings>=2.15.0",
+    "uvicorn>=0.52.4",
+    "fastapi>=0.121.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.28.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = ["tests"]
