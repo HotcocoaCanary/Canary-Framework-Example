@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+from canary_framework import Canary
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.module.db.models import ChatMessage, ChatSession
-from canary_framework import cocoa
 
 
-@cocoa
-class ChatSessionRepository:
+class ChatSessionRepository(Canary):
     async def add(self, session: AsyncSession, chat: ChatSession) -> ChatSession:
         session.add(chat)
         await session.flush()
@@ -36,8 +35,7 @@ class ChatSessionRepository:
         await session.delete(chat)
 
 
-@cocoa
-class ChatMessageRepository:
+class ChatMessageRepository(Canary):
     async def add(self, session: AsyncSession, message: ChatMessage) -> ChatMessage:
         session.add(message)
         await session.flush()

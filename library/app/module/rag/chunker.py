@@ -11,20 +11,20 @@ from __future__ import annotations
 
 import re
 
-from canary_framework import cocoa
+from canary_framework import Canary, dep
+
 from config import AppConfig
 
 _PARAGRAPH = re.compile(r"\n\s*\n")
 _SENTENCE = re.compile(r"(?<=[。！？!?；;])|(?<=[.!?])\s+")
 
 
-@cocoa(deps=[AppConfig])
-class TextChunker:
-    app_config: AppConfig
+class TextChunker(Canary):
+    config = dep(AppConfig)
 
     def split(self, text: str) -> list[str]:
-        size = max(self.app_config.chunk_size, 1)
-        overlap = min(max(self.app_config.chunk_overlap, 0), size - 1)
+        size = max(self.config.chunk_size, 1)
+        overlap = min(max(self.config.chunk_overlap, 0), size - 1)
 
         chunks: list[str] = []
         buffer = ""

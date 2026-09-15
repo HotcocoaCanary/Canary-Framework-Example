@@ -17,9 +17,8 @@
 见 ``telemetry/testing.py``。
 """
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
 from canary_framework import Canary
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppConfig(BaseSettings, Canary):

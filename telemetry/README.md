@@ -1,66 +1,83 @@
 # 场景二：设备遥测采集与告警
 
-一个用 Canary Framework **0.9.3**（`release/0.9.3` @ `fb712de`）写的**常驻守护进程**：周期采集设备指标 → 滚动窗口聚合
-→ 规则评估 → 告警去重投递。
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **0.10.0**
+写的**常驻守护进程**：周期采集设备指标 → 滚动窗口聚合 → 规则评估 → 告警去重投递。
 
-与 [场景一](../library/README.md) 的对照是刻意的：那里是请求驱动的 HTTP API，
-由 uvicorn 的 lifespan 驱动生命周期；这里没有 ASGI，进程用
-`async with Canary(TelemetryDaemon)` 自己驱动，靠信号退出。
-依赖里**没有** `canary-framework[web]`，用来验证框架「web 扩展延迟 import」的承诺。
+与 [场景一](../library/README.md) 的对照是刻意的：那里是请求驱动的 HTTP API，由 ASGI
+的 lifespan 驱动生命周期；这里没有 ASGI，进程用 `async with TelemetryDaemon()` 自己
+驱动，靠信号退出。框架的 `__aenter__` / `__aexit__` 正好覆盖这个用法。
+
+依赖里**只有核心**：0.10.0 的 `canary-framework` 是纯标准库、零第三方依赖，本项目
+除了 `pydantic-settings` 与 `httpx` 之外不装任何 web 相关的包
+（`tests/test_lifecycle.py` 用子进程钉住了这条）。
 
 ## 运行
 
 ```bash
+uv sync
+uv run pytest             # 58 个测试，零外部依赖
 uv run python main.py     # Ctrl-C 优雅退出
-uv run pytest             # 44 个测试，零外部依赖
 ```
 
 ```
-2026-09-04 17:52:10 INFO  telemetry.daemon: 遥测守护进程已启动，作业: collect, evaluate
-2026-09-08 17:49:37 INFO  telemetry: 装配完成，14 个单元：AppConfig → Clock →
-  SupervisedTasks → LoggingAlertSink → DeviceRegistry → MetricStore → Scheduler →
-  AlertDispatcher → SampleSource → WindowAggregator → RuleEngine → CollectorDaemon →
-  AlertDaemon → TelemetryDaemon
+2026-09-15 11:41:43 INFO  telemetry.scheduler: 调度器已启动，作业: collect, evaluate
+2026-09-15 11:41:43 INFO  telemetry.daemon:   遥测守护进程已启动，作业: collect, evaluate
+2026-09-15 11:41:44 INFO  telemetry: 收到停止信号，最终状态：{'jobs': {'collect': {...}}, ...}
 ```
-
-`AppConfig` 排在最前面：配置在框架里没有特殊地位，就是图上一个普通的
-`@cocoa` 节点，谁要用谁写进 `deps=[AppConfig]`。把 `CANARY_LOG_LEVEL=DEBUG` 打开
-还能看到框架自己的装配摘要。
 
 ## 架构
 
 ```
-main.py                    async with Canary(TelemetryDaemon) —— 无 ASGI，信号驱动
+main.py                    async with TelemetryDaemon() —— 无 ASGI，信号驱动
 telemetry/
-  settings.py              AppConfig（@cocoa + pydantic-settings，图上的普通节点）
+  settings.py              AppConfig（BaseSettings + Canary，图上的普通节点）
+  phases.py                launch = Phase("launch", after=start)  ← 第四个阶段
   infra/
-    clock.py               Clock / ManualClock       真实时钟 | 手动推进（测试用替身）
-    tasks.py               SupervisedTasks 后台任务监管 ← 框架缺失，自建
-    scheduler.py           Scheduler       周期作业驱动 ← 框架缺失，自建
-  source/sample_source.py  SampleSource / HttpSampleSource  确定性波形 | 轮询 HTTP
+    clock.py               Clock / ManualClock       真实时钟 | 手动推进（测试替身）
+    tasks.py               SupervisedTasks 后台任务监管 ← 框架不提供，自建
+    scheduler.py           Scheduler       周期作业驱动   ← 框架不提供，自建
+  source/sample_source.py  SampleSource    确定性波形 | 轮询 HTTP
   store/
-    metric_store.py        MetricStore    每序列一个有界环形缓冲
-    device_registry.py     DeviceRegistry 设备与阈值
+    metric_store.py        MetricStore     每序列一个有界环形缓冲
+    device_registry.py     DeviceRegistry  设备与阈值
   pipeline/
     aggregator.py          WindowAggregator  count/avg/min/max/p95
     rules.py               RuleEngine        离线 → 阈值 → 变化率
     dispatcher.py          AlertDispatcher   指纹去重 + 冷却（投递交给 sink）
-    sink.py                LoggingAlertSink / WebhookAlertSink  写日志 | POST webhook
+    sink.py                LoggingAlertSink  写日志 | POST webhook
   daemon.py                CollectorDaemon / AlertDaemon / TelemetryDaemon(根)
 ```
 
-### 三条值得说明的设计
+### 四条值得说明的设计
 
-**后台任务必须自己管。** `asyncio.create_task` 在守护进程里是不安全的：任务只被事件循环
-弱引用（可能被 GC）、异常被吞掉、生命周期与应用无关。`SupervisedTasks` 补上这三点——
-持强引用、记录失败、`@on_stop` 时取消并 await。框架没有任何任务设施
-（`dir(Canary)` 只有 `init/start/stop/state/order/instances`），每个跑后台工作的
-Canary 项目都得写一遍。
+**第四个阶段解决了"全图起来之后"。** 调度器必须等所有单元注册完作业才能开循环，
+而 `@start` 给不了这个位置：推进沿依赖向下，依赖的 `@start` 一定早于依赖者，调度器
+作为被依赖方反而最先跑。0.10.0 的阶段是一等对象，三行就够：
 
-**调度器不能用自己的 `@on_start` 启动循环。** 钩子按拓扑序执行，依赖先于被依赖者，
-所以调度器的钩子一定早于所有注册方——那时一个作业都没注册。真正启动循环的是**根**
-`TelemetryDaemon`，因为 Kahn 算法保证传递依赖了整张图的根排在最后。这条性质可靠但
-没有文档，见 [#013](../../../Canary-Framework/tmp/bug/013-startup-order-guarantees-undocumented.md)。
+```python
+launch = Phase("launch", after=start)     # phases.py
+```
+
+各单元在 `@start` 里注册作业，调度器在 `@launch` 里统一开循环；`after=start` 是一道
+栅栏，跳过 `start()` 直接推 `launch` 会抛 `LifecycleError`，而不是被静默跳过。
+推进它的是根单元——生命周期方法本身可以覆盖：
+
+```python
+class TelemetryDaemon(Canary):
+    async def start(self) -> None:
+        await super().start()             # 全图 @start
+        await advance(self, launch)       # 再广播 @launch
+```
+
+0.9.x 没有这个能力，同样的需求只能靠"根排在拓扑序最后"这条未写进文档的性质去绕。
+
+**配置既是 pydantic 模型，又是图上的节点。** 单元就是普通 Python 类，所以两个基类
+一起继承即可：`class AppConfig(BaseSettings, Canary)`。配置在框架里没有任何特殊地位。
+
+**后台任务必须自己管。** `asyncio.create_task` 在守护进程里是不安全的：任务只被事件
+循环弱引用（可能被 GC）、异常被吞掉、生命周期与应用无关。`SupervisedTasks` 补上这三点
+——持强引用、记录失败、`@stop` 时取消并 await。框架的核心只做依赖注入与生命周期，
+没有任务设施；但它给了一个站得住的挂载点：回收是唯一路径，正常结束与失败结束共用。
 
 **规则顺序是有讲究的：离线 → 阈值 → 变化率。** 一台已经不上报的设备，它的阈值和变化率
 都是无意义的历史数据，所以离线设备直接跳过后两条规则。变化率规则的价值在于
@@ -79,9 +96,13 @@ Canary 项目都得写一遍。
 
 ## 测试
 
-时间是被测试拥有的：全部管线测试一次 `sleep` 都不需要。框架没有替换入口
-（`provide=` 在最终版被删掉了），所以这条缝由 `telemetry/testing.py` 自己搭——
-注入发生在 `init()`，`@on_start` 还没跑，中间那一刻把注入好的 `Clock` 换成手动时钟。
-六行，见 `swap_clock`。
+时间是被测试拥有的：全部管线测试一次 `sleep` 都不需要。做法是**作用域预登记**——
+`Scope.instances` 就是"类型 → 本次运行的唯一实例"那张表，而 `dep(...)` 读的正是它，
+所以在生命周期开始前把 `ManualClock` 放进去，整张图就跑在手动时钟上，真 `Clock`
+连构造都不会发生。六行，见 `telemetry/testing.py::seed`。
+
+0.9.x 的 `setattr` 缝做不到这点：被替掉的那棵子树照样实例化、照样跑 `@on_start`
+——换掉仓储也拦不住它的依赖去连数据库。
+
 只有 `tests/test_daemon.py` 用真实时钟跑几十毫秒，验证调度器循环真的会自己转起来
 ——一个只有测试手动调用才工作的调度器不是调度器。

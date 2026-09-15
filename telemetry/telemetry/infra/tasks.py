@@ -1,16 +1,14 @@
-"""Supervised background tasks — the piece Canary does not provide.
+"""Supervised background tasks — still the application's job, not the framework's.
 
-``asyncio.create_task`` alone is unsafe in a long-running daemon:
+``asyncio.create_task`` 单独用在常驻进程里是不安全的：
 
-* the task is only weakly referenced by the loop, so it can be garbage-collected
-  mid-flight;
-* an exception inside it is swallowed until the task is awaited or GC'd;
-* nothing ties its lifetime to the application's, so ``Canary.stop()`` returns
-  while the task is still running — or the process exits with it half-done.
+* 事件循环只弱引用任务，它可能在运行途中被回收；
+* 任务内部的异常被吞掉，直到它被 await 或被 GC；
+* 它的生命周期与应用无关，``stop()`` 返回时它可能还在跑。
 
-This unit fixes all three: it holds strong references, records failures, and
-cancels-then-awaits everything on ``@on_stop``.  Every Canary project that runs
-background work has to write this.  See ``doc/bug/010-no-background-tasks.md``.
+这个单元解决三件事：持有强引用、记录失败、在 ``@stop`` 里取消并等待全部任务。
+0.10.0 的核心依旧只有依赖注入与生命周期，没有任务设施——但它给了一个站得住的挂载点：
+回收是唯一路径，正常结束与失败结束共用，所以"没有孤儿任务"这条保证是真的。
 """
 
 from __future__ import annotations
@@ -20,21 +18,17 @@ import logging
 from collections.abc import Coroutine
 from typing import Any
 
-from canary_framework import cocoa, on_stop
+from canary_framework import Canary, stop
 
 logger = logging.getLogger("telemetry.tasks")
 
 
-@cocoa
-class SupervisedTasks:
-    _tasks: set[asyncio.Task[Any]]
-    _failures: list[tuple[str, BaseException]]
-
+class SupervisedTasks(Canary):
     def __init__(self) -> None:
-        # ``@cocoa`` 单元由框架用 ``t()`` 无参实例化，所以状态在 __init__ 里初始化，
-        # 依赖则等 start 阶段注入。
-        self._tasks = set()
-        self._failures = []
+        # 单元一律由框架无参构造，所以纯内部状态在 __init__ 里备好；
+        # 需要读依赖的事情放到 @init / @start。
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._failures: list[tuple[str, BaseException]] = []
 
     def spawn(self, name: str, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
         """Start *coro* under supervision and keep a strong reference to it."""
@@ -51,7 +45,7 @@ class SupervisedTasks:
     def failures(self) -> list[tuple[str, BaseException]]:
         return list(self._failures)
 
-    @on_stop
+    @stop
     async def shutdown(self) -> None:
         """Cancel every task and wait for it — no orphans survive the process."""
         for task in list(self._tasks):

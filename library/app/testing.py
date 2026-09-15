@@ -1,22 +1,38 @@
 """Test helpers shipped with the package.
 
-They live here rather than in ``tests/conftest.py`` so that both scenarios in
-this workspace can keep a directory called ``tests/`` without their helper
-modules colliding on import.
+放在包里而不是 ``tests/conftest.py``，是为了两个场景都能有一个叫 ``tests/`` 的目录而
+不在 import 时撞车。
+
+其中 :func:`seed` 是 0.10.0 的替换缝。框架没有 ``provide=`` 之类的替换入口，但
+``Scope.instances`` 本来就是"类型 → 本次运行的唯一实例"那张表，而 ``dep(...)`` 读的
+正是它——所以在生命周期开始之前把替身放进去，整张图拿到的就是替身，真单元连构造都
+不会发生。
 """
 
 from __future__ import annotations
 
+from canary_framework import Canary, Scope, scope_of
 
-def effective_config(canary):
-    """The ``AppConfig`` instance the runtime actually built and shared.
 
-    配置回到普通 ``@cocoa`` 节点之后，它就在图上，``canary[AppConfig]`` 直接取得到
-    ——0.9.3 里"注解声明的配置不是节点、运行时给不出访问入口"那个洞随之消失。
+def seed[T: Canary](scope: Scope, cls: type[Canary], instance: T) -> T:
+    """Register *instance* as *scope*'s instance of *cls*, before the lifecycle starts.
+
+    ``adopt`` 把作用域写到替身身上（替身自己声明的依赖因此也解析得了），再按 *cls*
+    这个键登记一次——``adopt`` 用的键是 ``type(instance)``，而依赖声明的是 *cls*。
     """
-    from config import AppConfig
+    scope.adopt(instance)
+    scope.instances[cls] = instance
+    return instance
 
-    return canary[AppConfig]
+
+def unit[T: Canary](root: Canary, cls: type[T]) -> T:
+    """The scope's instance of *cls* —— 0.10.0 里 ``canary[Type]`` 的替代写法。"""
+    return scope_of(root).instances[cls]  # type: ignore[return-value]
+
+
+def root_of(client) -> Canary:
+    """The composition root behind a ``TestClient``."""
+    return client.app.state.root  # type: ignore[no-any-return]
 
 
 def payload(response):
@@ -30,9 +46,8 @@ def payload(response):
 def failure(response) -> tuple[int, str]:
     """Unwrap ``R`` and assert the call reported a domain failure.
 
-    失败同时出现在状态行和信封里：``app.common.errors.ok()`` 把 ``DomainError.code``
-    落到 ``JSONResponse`` 的状态码上。两者必须一致——不一致说明某个 handler 漏掉了
-    ``await ok(...)``，领域异常正在裸奔。
+    失败同时出现在状态行和信封里，两者必须一致——这由 ``app/wiring.py`` 的那一个异常
+    处理器保证。0.9.x 要靠每个 handler 自己记得 ``await ok(...)``，漏一个就变 500。
     """
     body = response.json()
     assert body["code"] != 0, body
@@ -60,16 +75,15 @@ def make_reader(client, **overrides) -> dict:
 def make_overdue(client, loan_id: str, days: int) -> None:
     """Backdate a loan so that it is *days* days overdue, right now.
 
-    The write runs on the client's own event loop portal, because the async
-    engine — and the single connection an in-memory SQLite is pinned to — belong
-    to the loop the application was started on.
+    写操作跑在 client 自己的事件循环门户上：异步引擎——以及内存 SQLite 被钉住的那一条
+    连接——属于应用启动时所在的那个循环。
     """
     from datetime import timedelta
 
     from app.infra.db import Database
     from app.module.db.models import Loan, utcnow
 
-    database = client.canary[Database]
+    database = unit(root_of(client), Database)
 
     async def _age() -> None:
         async with database.begin() as session:

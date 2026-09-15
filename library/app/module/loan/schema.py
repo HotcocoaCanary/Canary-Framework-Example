@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,9 +11,9 @@ class BorrowRequest(BaseModel):
     """Identify the reader, then the item — by copy, by barcode, or by title."""
 
     reader_id: str = Field(description="读者 ID 或借书证号")
-    book_id: Optional[str] = Field(default=None, description="书目 ID：自动挑一册可借副本")
-    copy_id: Optional[str] = Field(default=None, description="指定副本 ID")
-    barcode: Optional[str] = Field(default=None, description="扫码借阅：副本条码")
+    book_id: str | None = Field(default=None, description="书目 ID：自动挑一册可借副本")
+    copy_id: str | None = Field(default=None, description="指定副本 ID")
+    barcode: str | None = Field(default=None, description="扫码借阅：副本条码")
 
     # 「三选一」的校验放在 service 而不是 pydantic validator：Canary 0.9.2 渲染
     # 校验错误时会把 ctx 里的原始 ValueError 直接塞进 JSONResponse，导致 422 响应
@@ -22,20 +21,20 @@ class BorrowRequest(BaseModel):
 
 
 class ReturnRequest(BaseModel):
-    copy_id: Optional[str] = Field(default=None, description="副本 ID")
-    barcode: Optional[str] = Field(default=None, description="副本条码")
+    copy_id: str | None = Field(default=None, description="副本 ID")
+    barcode: str | None = Field(default=None, description="副本条码")
 
 
 class LoanResponse(BaseModel):
     id: str
     copy_id: str
     book_id: str
-    book_title: Optional[str] = None
-    barcode: Optional[str] = None
+    book_title: str | None = None
+    barcode: str | None = None
     reader_id: str
     borrowed_at: datetime
     due_at: datetime
-    returned_at: Optional[datetime] = None
+    returned_at: datetime | None = None
     renew_count: int = 0
     status: str
     fine_cents: int = 0
@@ -59,11 +58,11 @@ class ReserveRequest(BaseModel):
 class ReservationResponse(BaseModel):
     id: str
     book_id: str
-    book_title: Optional[str] = None
+    book_title: str | None = None
     reader_id: str
     status: str
-    queue_position: Optional[int] = Field(default=None, description="排队位次（waiting 时有效）")
-    copy_id: Optional[str] = None
+    queue_position: int | None = Field(default=None, description="排队位次（waiting 时有效）")
+    copy_id: str | None = None
     created_at: datetime
-    ready_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
+    ready_at: datetime | None = None
+    expires_at: datetime | None = None

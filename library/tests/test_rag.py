@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
+from canary_framework import scope_of
+
 from app.module.rag.chunker import TextChunker
-from canary_framework import Canary
+from app.testing import failure, make_book, payload, seed
 from config import AppConfig
-from app.testing import failure, make_book, payload
 
 POLICY = (
     "普通读者一次最多可借 5 册，借期 30 天，可续借 2 次。"
@@ -20,47 +21,38 @@ def _index(client, title, text, **extra) -> dict:
     return payload(client.post("/api/rag/documents", json={"title": title, "text": text, **extra}))
 
 
+def _chunker(**settings) -> TextChunker:
+    """A chunker on a graph of its own.
+
+    任何单元都可以当根启动——这里这张图只有两个节点：``TextChunker`` 和它依赖的
+    ``AppConfig``，而后者由测试预先登记，于是切分参数完全由测试说了算。
+    """
+    chunker = TextChunker()
+    seed(scope_of(chunker), AppConfig, AppConfig(**settings))
+    asyncio.run(chunker.init())
+    return chunker
+
+
 # --- 切分 -------------------------------------------------------------
 
 
 def test_chunker_splits_on_sentence_boundaries():
-    runtime = Canary(TextChunker)
-    asyncio.run(runtime.init())
-    asyncio.run(runtime.start())
-    chunker = runtime[TextChunker]
-    # 0.9.3 起 app_config 由注解声明并在 start() 时注入，无需测试手动补上
-
-    pieces = chunker.split("第一句。第二句！第三句？")
+    pieces = _chunker().split("第一句。第二句！第三句？")
     assert pieces == ["第一句。第二句！第三句？"]  # 短文本合并为一段
-    asyncio.run(runtime.stop())
 
 
 def test_chunker_respects_the_window_and_overlaps():
-    runtime = Canary(TextChunker)
-    asyncio.run(runtime.init())
-    asyncio.run(runtime.start())
-    chunker = runtime[TextChunker]
-    chunker.app_config.chunk_size = 40
-    chunker.app_config.chunk_overlap = 10
+    chunker = _chunker(chunk_size=40, chunk_overlap=10)
 
     pieces = chunker.split("。".join(f"这是第 {i} 个句子内容" for i in range(20)))
     assert len(pieces) > 1
     assert all(len(p) <= 40 + 10 for p in pieces)
-    asyncio.run(runtime.stop())
 
 
 def test_chunker_hard_cuts_a_sentence_longer_than_the_window():
-    runtime = Canary(TextChunker)
-    asyncio.run(runtime.init())
-    asyncio.run(runtime.start())
-    chunker = runtime[TextChunker]
-    chunker.app_config.chunk_size = 20
-    chunker.app_config.chunk_overlap = 0
-
-    pieces = chunker.split("甲" * 95)
+    pieces = _chunker(chunk_size=20, chunk_overlap=0).split("甲" * 95)
     assert len(pieces) >= 5
     assert max(len(p) for p in pieces) <= 20
-    asyncio.run(runtime.stop())
 
 
 # --- 建索引 -----------------------------------------------------------

@@ -1,24 +1,21 @@
 """The wire envelope shared by every endpoint.
 
-``code`` carries what Canary 0.9 cannot express: the framework always answers
-``200 application/json`` (``web/core/routing.py:_to_response``), so the real
-outcome of a request has to live inside the body.
-"""
+``{code, data, msg}``：``code`` 为 0 表示成功，否则与 HTTP 状态行一致。两样都给，是为了
+让只看 body 的客户端和只看状态码的网关都能判断结果。
 
-from typing import Generic, Optional, TypeVar
+失败信封由 ``app/wiring.py`` 的那一个异常处理器统一产出，handler 只描述成功形状。
+"""
 
 from pydantic import BaseModel, Field, computed_field
 
-T = TypeVar("T")
 
-
-class R(BaseModel, Generic[T]):
+class R[T](BaseModel):
     code: int = Field(default=0, description="状态码: 0 = 成功, 4xx / 5xx = 失败")
-    data: Optional[T] = Field(default=None, description="响应数据")
+    data: T | None = Field(default=None, description="响应数据")
     msg: str = Field(default="ok", description="消息")
 
     @classmethod
-    def ok(cls, data: T = None, msg: str = "ok") -> "R[T]":
+    def ok(cls, data: T | None = None, msg: str = "ok") -> "R[T]":
         return cls(code=0, data=data, msg=msg)
 
     @classmethod
@@ -26,7 +23,7 @@ class R(BaseModel, Generic[T]):
         return R[None](code=code, data=None, msg=msg)
 
 
-class PageResult(BaseModel, Generic[T]):
+class PageResult[T](BaseModel):
     records: list[T] = Field(default_factory=list, description="当前页数据")
     total: int = Field(default=0, description="总记录数")
     size: int = Field(default=20, description="每页大小")
@@ -42,7 +39,7 @@ class PageResult(BaseModel, Generic[T]):
         return cls(records=records, total=total, size=size, current=page)
 
 
-class PageR(R[PageResult[T]], Generic[T]):
+class PageR[T](R[PageResult[T]]):
     """``R`` whose payload is one page of ``T``."""
 
 

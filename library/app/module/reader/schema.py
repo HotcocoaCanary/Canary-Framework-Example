@@ -3,33 +3,32 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class CreateReaderRequest(BaseModel):
     name: str = Field(max_length=100, description="姓名")
-    card_no: Optional[str] = Field(default=None, max_length=32, description="借书证号，留空自动生成")
-    email: Optional[str] = Field(default=None, max_length=200)
-    phone: Optional[str] = Field(default=None, max_length=40)
+    card_no: str | None = Field(default=None, max_length=32, description="借书证号，留空自动生成")
+    email: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
     level: str = Field(default="normal", description="student / normal / vip / staff")
 
 
 class UpdateReaderRequest(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=100)
-    email: Optional[str] = Field(default=None, max_length=200)
-    phone: Optional[str] = Field(default=None, max_length=40)
-    level: Optional[str] = Field(default=None, description="student / normal / vip / staff")
-    status: Optional[str] = Field(default=None, description="active / suspended")
+    name: str | None = Field(default=None, max_length=100)
+    email: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
+    level: str | None = Field(default=None, description="student / normal / vip / staff")
+    status: str | None = Field(default=None, description="active / suspended")
 
 
 class ReaderResponse(BaseModel):
     id: str
     card_no: str
     name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    email: str | None = None
+    phone: str | None = None
     level: str
     status: str
     fine_balance_cents: int = 0

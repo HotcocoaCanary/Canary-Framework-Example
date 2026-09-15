@@ -1,43 +1,39 @@
 """Fixtures — a fully assembled daemon on a hand-advanced clock.
 
-Nothing here sleeps.  The whole point of scenario 2 is a *time*-driven system,
-and a time-driven system is only testable if the test owns the clock.
+Nothing here sleeps.  场景二的全部意义是一个*时间*驱动的系统，而时间驱动的系统只有在
+测试拥有时钟时才可测。
 
-最终版删掉了 ``provide=``，所以"拥有时钟"这件事由 ``telemetry/testing.py`` 自己做：
-在 ``init()`` 与 ``start()` 之间把注入好的 ``Clock`` 换掉。见那个模块的说明。
+"拥有时钟"这件事在 0.10.0 里是把 ``ManualClock`` 预先登记进作用域，真 ``Clock`` 因此
+连构造都不会发生——见 ``telemetry/testing.py`` 的说明。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from canary_framework import Canary
 from telemetry.daemon import TelemetryDaemon
 from telemetry.infra.clock import ManualClock
-from telemetry.testing import apply_settings, swap_clock
+from telemetry.testing import started_daemon
 
 
 @pytest.fixture
-def runtime() -> Canary:
-    """An un-started runtime — for tests that drive the lifecycle themselves."""
-    return Canary(TelemetryDaemon)
+async def started(request) -> tuple[TelemetryDaemon, ManualClock]:
+    """A started daemon; ``@pytest.mark.settings(...)`` 可覆盖任意配置字段。"""
+    marker = request.node.get_closest_marker("settings")
+    daemon, clock = await started_daemon(**(marker.kwargs if marker else {}))
+
+    # 调度器的后台循环在绝大多数测试里是噪声：作业由测试直接调用。
+    await daemon.tasks.shutdown()
+
+    yield daemon, clock
+    await daemon.stop()
 
 
 @pytest.fixture
-async def daemon(runtime: Canary):
-    """A started daemon: manual clock, deterministic synthetic samples."""
-    await runtime.init()
-    runtime.manual_clock = swap_clock(runtime)
-    await runtime.start()
-
-    # 调度器的循环在这些测试里是噪声：作业由测试直接调用。
-    await runtime[TelemetryDaemon].supervised_tasks.shutdown()
-
-    yield runtime[TelemetryDaemon]
-    await runtime.stop()
+def daemon(started) -> TelemetryDaemon:
+    return started[0]
 
 
 @pytest.fixture
-def clock(runtime: Canary, daemon) -> ManualClock:
-    """The swapped-in clock. ``canary[Clock]`` 仍然是真时钟——框架不知道换过。"""
-    return runtime.manual_clock
+def clock(started) -> ManualClock:
+    return started[1]

@@ -1,17 +1,18 @@
-"""Assembly — what the dependency graph and the merged route table look like."""
+"""Assembly — the dependency graph, the route table, and the seam between them."""
 
 from __future__ import annotations
 
 import asyncio
 
-from app.api import LibraryApi
+from canary_framework import deps_of, scope_of
+
+from app.composition import LibraryApi
 from app.infra.ai import ChatModel, EmbeddingModel
 from app.infra.db import Database
 from app.module.catalog.service import CatalogService
 from app.module.db.repository.book_repository import BookRepository
 from app.module.loan.service import CirculationService
-from app.testing import effective_config
-from canary_framework import Canary, LifecycleState
+from app.testing import unit
 from config import AppConfig
 
 EXPECTED_PATHS = {
@@ -46,90 +47,113 @@ EXPECTED_PATHS = {
 }
 
 
-def test_every_module_mounts_under_the_api_prefix(client):
-    """``@web_cocoa`` prefixes nest along dependency edges: /api + /catalog + …"""
+# --- 路由表：FastAPI 那一侧 ------------------------------------------------
+
+
+def test_every_module_mounts_under_its_own_absolute_prefix(client):
+    """前缀是绝对的：每个 router 自己写全 ``/api/<模块>``，不再沿依赖边下沉。"""
     paths = set(client.get("/openapi.json").json()["paths"])
     assert paths == EXPECTED_PATHS
 
 
-def test_openapi_metadata_comes_from_the_outermost_unit(client):
+def test_openapi_metadata_comes_from_the_fastapi_app(client):
     info = client.get("/openapi.json").json()["info"]
-    assert info == {"title": "智能图书馆管理系统 API", "version": "1.0.0"}
+    assert info["title"] == "智能图书馆管理系统 API"
+    assert info["version"] == "1.0.0"
 
 
-def test_dependencies_start_before_their_dependents(app):
-    """Topological order — settings first, the engine, then everything above it.
+def test_the_interactive_docs_render(client):
+    """0.9.x 里 OpenAPI schema 生成会打挂 ``/docs``；换成 FastAPI 之后这是它的本职。"""
+    assert client.get("/docs").status_code == 200
+    assert client.get("/openapi.json").status_code == 200
 
-    ``AppConfig`` 又回到了图上：类级注解注入被删之后，配置就是一个普通 ``@cocoa``
-    节点，靠 ``deps=[AppConfig]`` 声明，因此也参与拓扑排序——而且必然排在最前，
-    因为谁都依赖它、它谁也不依赖。
-    """
-    asyncio.run(app.init())
-    order = list(app.order)
-    assert order[0] is AppConfig
+
+# --- 依赖图：Canary 那一侧 -------------------------------------------------
+
+
+def test_the_root_reaches_every_service():
+    """根单元依赖每个模块的 service，于是整张图从它可达。"""
+    from app.module.chat.service import AssistantService
+    from app.module.rag.service import RagService
+    from app.module.reader.service import ReaderService
+
+    assert set(deps_of(LibraryApi)) == {
+        AppConfig,
+        Database,
+        EmbeddingModel,
+        ChatModel,
+        CatalogService,
+        ReaderService,
+        CirculationService,
+        RagService,
+        AssistantService,
+    }
+
+
+def test_dependencies_start_before_their_dependents():
+    """推进沿依赖向下：一个单元进入某阶段之前，它的依赖已经完成该阶段。"""
+    order: list[type] = []
+
+    async def run() -> None:
+        root = LibraryApi()
+        await root.init()
+        # 台账记录的就是进入顺序
+        order.extend(type(u) for u in scope_of(root).entered["init"])
+
+    asyncio.run(run())
     assert order.index(AppConfig) < order.index(Database)
     assert order.index(Database) < order.index(CatalogService)
     assert order.index(BookRepository) < order.index(CatalogService)
-    assert order[-1] is LibraryApi
+    assert order[-1] is LibraryApi, "根单元最后进入——它依赖所有人"
 
 
-def test_shared_units_are_singletons(app):
-    """A unit reached from two branches is instantiated once.
-
-    Injection happens in ``start()``, not ``init()`` — the graph is built first,
-    attributes are wired afterwards.
-    """
-    asyncio.run(app.init())
-    asyncio.run(app.start())
-    catalog = app[CatalogService]
-    circulation = app[CirculationService]
-    assert catalog.book_repository is circulation.book_repository
-    assert app[Database] is catalog.database
-    asyncio.run(app.stop())
+def test_shared_units_are_singletons(root):
+    """A unit reached from two branches is instantiated once."""
+    catalog = unit(root, CatalogService)
+    circulation = unit(root, CirculationService)
+    assert catalog.books is circulation.books
+    assert unit(root, Database) is catalog.database
 
 
-def test_lifecycle_reaches_started_and_stopped(app):
-    assert app.state is LifecycleState.NEW
-    asyncio.run(app.init())
-    assert app.state is LifecycleState.INITIALIZED
-    asyncio.run(app.start())
-    assert app.state is LifecycleState.STARTED
-    asyncio.run(app.stop())
-    assert app.state is LifecycleState.STOPPED
+def test_one_config_instance_is_shared_by_the_whole_graph(root):
+    """``config = dep(AppConfig)`` 写在四个不同单元上，解析到同一个对象。"""
+    shared = unit(root, AppConfig)
+    assert unit(root, EmbeddingModel).config is shared
+    assert unit(root, ChatModel).config is shared
+    assert root.config is shared
 
 
-def test_on_start_hooks_wired_the_infrastructure(client):
-    """``@on_start`` runs after injection, so the engine is built from config."""
-    canary = client.canary
-    assert canary[Database].engine is not None
-    assert canary[EmbeddingModel].dim == effective_config(canary).embedding_dim
-    assert canary[ChatModel] is not None
+def test_start_hooks_wired_the_infrastructure(root):
+    """``@start`` 在依赖的 ``@start`` 之后运行，所以引擎是用最终配置建的。"""
+    assert unit(root, Database).engine is not None
+    assert unit(root, EmbeddingModel).dim == unit(root, AppConfig).embedding_dim
 
 
-def test_one_config_instance_is_shared_by_the_whole_graph(client):
-    """``config: AppConfig`` on four different units resolves to one object."""
-    canary = client.canary
-    shared = effective_config(canary)
-    assert canary[EmbeddingModel].app_config is shared
-    assert canary[ChatModel].app_config is shared
-    assert canary[LibraryApi].app_config is shared
-    # 没声明的单元不会被塞进去
-    assert not hasattr(canary[CatalogService], "app_config")
+def test_a_unit_only_carries_what_it_declared(root):
+    """注入的来源只有一个：``dep(...)``。框架不会多塞日志、配置或任何别的东西。"""
+    catalog = unit(root, CatalogService)
+    assert not hasattr(catalog, "log")
+    assert not hasattr(catalog, "config"), "CatalogService 没声明 AppConfig"
+    assert hasattr(catalog, "database")
 
 
-def test_the_runtime_injects_nothing_it_was_not_asked_for(client):
-    """注入的来源只有一个：``deps=[...]``。
-
-    0.9.3 还会按类级注解塞进 ``log: logging.Logger`` 与配置实例；HEAD 把那条路
-    删干净了，单元身上因此只会出现自己声明过的协作者。日志退回标准库的
-    ``logging.getLogger(__name__)``——框架不再多认识一种声明方式。
-    """
-    api = client.canary[LibraryApi]
-    assert not hasattr(api, "log")
-    assert api.app_config is client.canary[AppConfig]
+def test_the_attribute_name_is_the_applications_choice(root):
+    """``books = dep(BookRepository)`` —— 不再是类名的 snake_case。"""
+    catalog = unit(root, CatalogService)
+    assert catalog.books is unit(root, BookRepository)
+    assert not hasattr(catalog, "book_repository")
 
 
-def test_health_reports_the_selected_implementations(client):
+# --- 两侧的接触面 -----------------------------------------------------------
+
+
+def test_the_http_layer_resolves_units_out_of_the_running_scope(client, root):
+    """``unit(Cls)`` 是 FastAPI 依赖，取的就是 lifespan 启动的那张图里的实例。"""
+    body = client.get("/api/health").json()["data"]
+    assert body == root.health()
+
+
+def test_health_reports_the_implementations_actually_in_the_graph(client):
     body = client.get("/api/health").json()["data"]
     assert body == {
         "status": "ok",
@@ -138,3 +162,17 @@ def test_health_reports_the_selected_implementations(client):
         "embedding_model": "EmbeddingModel",
         "chat_model": "ChatModel",
     }
+
+
+def test_each_app_gets_its_own_graph():
+    """两个各自构造的根是两张互不相干的图——作用域即是图。"""
+
+    async def run() -> tuple[object, object]:
+        a, b = LibraryApi(), LibraryApi()
+        await a.init()
+        await b.init()
+        return scope_of(a), scope_of(b)
+
+    scope_a, scope_b = asyncio.run(run())
+    assert scope_a is not scope_b
+    assert scope_a.instances[AppConfig] is not scope_b.instances[AppConfig]

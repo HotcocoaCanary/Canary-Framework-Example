@@ -12,18 +12,17 @@ same rows round-trip through either backend.
 
 from __future__ import annotations
 
+from canary_framework import Canary, dep
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.infra.ai import cosine
 from app.infra.db import Database
 from app.module.db.models import DocChunk
-from canary_framework import cocoa
 
 
-@cocoa(deps=[Database])
-class DocChunkRepository:
-    database: Database
+class DocChunkRepository(Canary):
+    database = dep(Database)
 
     async def add_many(self, session: AsyncSession, chunks: list[DocChunk]) -> list[DocChunk]:
         session.add_all(chunks)

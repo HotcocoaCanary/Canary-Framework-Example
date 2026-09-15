@@ -1,22 +1,26 @@
-# 智能图书馆管理系统
+# 场景一：智能图书馆管理系统
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **0.9.3**
-（`release/0.9.3` @ `fb712de`）从头搭建的
-图书馆管理系统：书目与馆藏、读者、借还流通与预约队列，外加一个基于 RAG 的智能馆员助手。
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **0.10.0**
+搭的图书馆管理系统：书目与馆藏、读者、借还流通与预约队列，外加一个基于 RAG 的
+智能馆员助手。
 
-全栈只用框架提供的东西：`@cocoa`（最小单元 + 依赖注入）、生命周期钩子
-（`@on_start` / `@on_stop`）、`@web_cocoa` + `@get/@post/...`（HTTP 路由，含
-`status_code` / `tags` / `summary`）。框架的公开面就这么大——组装只有
-`Canary(LibraryApi)` 一句，没有替换入口，也没有异常映射登记：领域异常由应用自己
-在 `app/common/errors.py::ok` 接住。
-过程中遇到的框架问题记录在 [`../../doc/bug/`](../../doc/bug/)，汇总见
-[`../../doc/verification-final.md`](../../doc/verification-final.md)。
+**职责是分开的。** 0.10.0 删掉了 `canary_framework.web`，框架的定位收回到依赖注入与
+生命周期本身，于是这两件事分给了两个库：
+
+| | 负责什么 |
+|---|---|
+| **Canary** | 单元之间的依赖、构造顺序、启动与回收 |
+| **FastAPI** | 路由、请求校验、状态码、OpenAPI 与 `/docs` |
+
+两者的接触面只有 [`app/wiring.py`](app/wiring.py) 一个文件，三件事：lifespan 对接、
+按类型取单元、领域异常落地。分开之后每一侧都是该领域里最普通的写法——不需要为了用
+框架而学一套只在这个框架里成立的 web 约定。
 
 ## 快速开始
 
 ```bash
 uv sync
-uv run pytest              # 105 个测试，零外部依赖
+uv run pytest              # 101 个测试，零外部依赖
 uv run python main.py      # http://127.0.0.1:8010/docs
 ```
 
@@ -38,39 +42,63 @@ uv run alembic upgrade head
 ## 架构
 
 ```
-main.py                Canary(LibraryApi) —— Canary 本身就是 ASGI 应用
-└── app/api.py         LibraryApi  @web_cocoa(prefix="/api")  ← 组合根，也是 OpenAPI 元数据来源
-    ├── catalog/       /api/catalog      书目与馆藏副本
-    ├── reader/        /api/readers      读者、等级、罚金
-    ├── loan/          /api/circulation  借书 / 还书 / 续借 / 预约队列
-    ├── rag/           /api/rag          文献入库、切分、向量化、语义检索
-    └── chat/          /api/assistant    智能馆员问答（带引用）
-
-app/infra/
-    db.py              Database    唯一持有 async engine 的单元，提供工作单元 begin()/read()
-    ai.py              EmbeddingModel / ChatModel   local（离线确定性）| openai（兼容端点）
-
-app/module/db/
-    models.py          9 张表：books / book_copies / readers / loans / reservations
-                             library_docs / doc_chunks / chat_sessions / chat_messages
-    repository/        无状态查询对象——session 由调用方传入
+main.py                    uvicorn 跑 app/api.py 里的 ASGI 应用
+app/
+  api.py                   create_app()：FastAPI 实例 + 挂载各模块 router
+  wiring.py                ← Canary 与 FastAPI 的全部接触面（lifespan / provide / 异常）
+  composition.py           LibraryApi —— 组合根，依赖每个 service，但不认识 HTTP
+  module/
+    catalog/    /api/catalog      书目与馆藏副本
+    reader/     /api/readers      读者、等级、罚金
+    loan/       /api/circulation  借书 / 还书 / 续借 / 预约队列
+    rag/        /api/rag          文献入库、切分、向量化、语义检索
+    chat/       /api/assistant    智能馆员问答（带引用）
+  infra/
+    db.py                  Database    唯一持有 async engine 的单元，提供 begin()/read()
+    ai.py                  EmbeddingModel / ChatModel   local（离线确定性）| openai（兼容端点）
+  module/db/
+    models.py              9 张表：books / book_copies / readers / loans / reservations
+                                  library_docs / doc_chunks / chat_sessions / chat_messages
+    repository/            无状态查询对象——session 由调用方传入
 ```
 
-### 三条值得说明的设计
+每个模块是 `router.py`（FastAPI 路由）+ `service.py`（`Canary` 单元，业务规则）+
+`schema.py`（pydantic 请求/响应模型）。
 
-**事务边界在 service。** repository 不开 session，方法第一个参数就是
-`AsyncSession`；service 用 `async with self.database.begin()` 包住整个用例。
-一次借书要同时写 `Loan`、翻转 `BookCopy.status`、可能还要兑现 `Reservation`——
-这些必须同生共死。框架没有请求作用域，所以工作单元是显式的
-（[bug/009](../../doc/bug/009-no-request-scope-or-unit-of-work.md)）。
+### 四条值得说明的设计
+
+**handler 怎么拿到单元。** `wiring.py` 里的 `provide(Cls)` 是一个 FastAPI 依赖，
+从 lifespan 启动的那张图里按类型取实例：
+
+```python
+Catalog = Annotated[CatalogService, unit(CatalogService)]
+
+@router.post("/books")
+async def create_book(body: CreateBookRequest, catalog: Catalog) -> R[BookResponse]:
+    return R.ok(await catalog.create_book(body))
+```
+
+注意作用域的粒度是**一次运行**，不是一次请求：每个类型一个实例，这正是连接池该有的
+粒度。请求级的工作单元由 service 自己开。
+
+**事务边界在 service。** repository 不开 session，方法第一个参数就是 `AsyncSession`；
+service 用 `async with self.database.begin()` 包住整个用例。一次借书要同时写 `Loan`、
+翻转 `BookCopy.status`、可能还要兑现 `Reservation`——这些必须同生共死。框架没有请求
+作用域，所以工作单元是显式的。
+
+**领域异常只在一处落地。** service 只 `raise`，不认识任何 HTTP 概念；
+`wiring.py::install_error_handlers` 用一个 `@app.exception_handler(DomainError)`
+把它翻成 `{code, data, msg}` 信封和对应状态码。这是这次重写里少数"代码变简单了"的
+地方——0.9.x 的框架删掉 `@on_request_error` 之后，领域异常必须由每个 handler 自己用
+`await ok(...)` 接住，漏写一个就变成 500，只能靠代码评审兜底。
 
 **embedding 列一次声明、两种方言。** `Vector(1024).with_variant(JSON(), "sqlite")`，
-于是同一个模型在 PostgreSQL 上走 pgvector 的余弦距离算子 + HNSW 索引，
-在 SQLite 上退化为 Python 内的余弦计算。测试因此不需要任何外部服务。
+于是同一个模型在 PostgreSQL 上走 pgvector 的余弦距离算子 + HNSW 索引，在 SQLite 上
+退化为 Python 内的余弦计算。测试因此不需要任何外部服务。
 
-**助手不会瞎编。** `/api/assistant/ask` 先检索，检索为空就直接拒答，
-连模型都不调用；有结果时把片段作为唯一上下文交给模型，并把
-`sources`（书名、文献名、片段、相似度）一起返回并落库。每个回答都可追溯。
+**助手不会瞎编。** `/api/assistant/ask` 先检索，检索为空就直接拒答，连模型都不调用；
+有结果时把片段作为唯一上下文交给模型，并把 `sources`（书名、文献名、片段、相似度）
+一起返回并落库。每个回答都可追溯。
 
 ## 主要接口
 
@@ -96,21 +124,20 @@ app/module/db/
 
 ## 响应格式
 
-所有接口返回 `{"code": 0, "data": ..., "msg": "ok"}`，失败时 `code` 为 404 / 409 / 422 等。
+所有接口返回 `{"code": 0, "data": ..., "msg": "ok"}`，失败时 `code` 为 404 / 409 / 422 等，
+**并与 HTTP 状态行一致**（`app/testing.py::failure` 守着这条）。信封是给前端的契约，
+状态码是给网关和客户端的——两样都给，只看一样也能判断结果。
 
-信封是给前端的契约，**状态码从 0.9.3 起回到了状态行上**：领域异常由
-`LibraryApi` 上的两个 `@on_request_error` 映射成真实的 HTTP 状态，
-`code` 与 `status` 始终一致（`app/testing.py::failure` 守着这条）。
-0.9.2 时框架只会构造 200 的 `JSONResponse`，那才是 `code` 当初存在的原因。
+请求体校验失败是唯一的例外：那由 FastAPI 在进 handler 之前处理，返回它自己的 422 格式。
 
 ## 测试
 
 ```bash
-uv run pytest                                   # 102 passed
-uv run pytest tests/test_framework_boundaries.py   # 框架边界的可执行说明
+uv run pytest                                      # 101 passed
+uv run pytest tests/test_framework_boundaries.py   # 21 条：Canary ↔ FastAPI 接缝
 ```
 
-`tests/test_framework_boundaries.py` 里每个测试都钉住一条框架行为，并注明它逼出了
-本项目的哪个设计。已修复的能力从正面钉住（回归保护），仍然坏掉的从反面钉住
-（标了 `STILL BROKEN`）。**框架再修好一处，对应的测试就会失败**，
-正好提示对应的绕行代码可以删掉。
+测试替换实现走的是**作用域预登记**——框架没有 `provide=` 之类的替换入口，但
+`Scope.instances` 本来就是"类型 → 本次运行的唯一实例"那张表，而 `dep(...)` 读的正是它。
+在生命周期开始之前把替身放进去，整张图拿到的就是替身，真单元连构造都不会发生。
+六行，见 `app/testing.py::seed`。

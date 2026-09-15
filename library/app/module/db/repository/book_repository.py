@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+from canary_framework import Canary
 from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.module.db.models import Book
-from canary_framework import cocoa
 
 
-@cocoa
-class BookRepository:
+class BookRepository(Canary):
     async def add(self, session: AsyncSession, book: Book) -> Book:
         session.add(book)
         await session.flush()

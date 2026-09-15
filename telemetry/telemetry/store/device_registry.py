@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from canary_framework import Canary, dep, start
+
 from telemetry.domain.models import Device, Threshold
-from canary_framework import cocoa, on_start
 from telemetry.settings import AppConfig
 
 _SEED = (
@@ -39,25 +40,22 @@ _SEED = (
 )
 
 
-@cocoa(deps=[AppConfig])
-class DeviceRegistry:
-    app_config: AppConfig
-
-    _devices: dict[str, Device]
+class DeviceRegistry(Canary):
+    config = dep(AppConfig)
 
     def __init__(self) -> None:
-        self._devices = {}
+        self._devices: dict[str, Device] = {}
 
-    @on_start
+    @start
     async def setup(self) -> None:
         for device in _SEED:
             if device.offline_after_seconds is None:
-                device.offline_after_seconds = self.app_config.offline_after_seconds
+                device.offline_after_seconds = self.config.offline_after_seconds
             self._devices[device.id] = device
 
     def add(self, device: Device) -> Device:
         if device.offline_after_seconds is None:
-            device.offline_after_seconds = self.app_config.offline_after_seconds
+            device.offline_after_seconds = self.config.offline_after_seconds
         self._devices[device.id] = device
         return device
 

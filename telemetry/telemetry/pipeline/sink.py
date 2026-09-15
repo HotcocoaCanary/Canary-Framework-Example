@@ -1,9 +1,11 @@
 """Where a surviving alert actually goes.
 
-Split out of ``AlertDispatcher``: de-duplication is policy and belongs to the
-dispatcher, delivery is I/O and belongs here.  默认写日志；``AppConfig`` 说要
-webhook 时，在 ``@on_start`` 换上 HTTP 后端——最终版删掉了 ``provide=``，
-"投递到哪儿"因此是单元自己读配置决定的。
+从 ``AlertDispatcher`` 里拆出来：去重是策略，归调度器；投递是 I/O，归这里。
+默认写日志；``AppConfig`` 说要 webhook 时，在 ``@start`` 换上 HTTP 后端。
+
+"用哪个后端"由单元自己读配置决定：框架没有装配期的替换入口，图上的实例一律由框架
+无参构造。测试要整个换掉一个单元走的是另一条路——把替身预先登记进作用域，
+见 ``telemetry/testing.py``。
 """
 
 from __future__ import annotations
@@ -11,33 +13,30 @@ from __future__ import annotations
 import logging
 
 import httpx
+from canary_framework import Canary, dep, start, stop
 
-from canary_framework import cocoa, on_start, on_stop
 from telemetry.domain.models import Alert
 from telemetry.settings import AppConfig
 
 logger = logging.getLogger("telemetry.alerts")
 
 
-@cocoa(deps=[AppConfig])
-class LoggingAlertSink:
+class LoggingAlertSink(Canary):
     """Writes the alert to the log — the default, and what tests assert against."""
 
-    app_config: AppConfig
-
-    delivered: list[Alert]
-    _remote: WebhookBackend | None = None
+    config = dep(AppConfig)
 
     def __init__(self) -> None:
-        self.delivered = []
+        self.delivered: list[Alert] = []
+        self._remote: WebhookBackend | None = None
 
-    @on_start
+    @start
     async def choose_backend(self) -> None:
-        if self.app_config.use_webhook_sink:
-            self._remote = WebhookBackend(self.app_config)
+        if self.config.use_webhook_sink:
+            self._remote = WebhookBackend(self.config)
             await self._remote.open()
 
-    @on_stop
+    @stop
     async def close_backend(self) -> None:
         if self._remote is not None:
             await self._remote.aclose()
@@ -52,12 +51,16 @@ class LoggingAlertSink:
 
 
 class WebhookBackend:
-    """POSTs the alert to ``alert_webhook_url``. 不在图上，由 ``LoggingAlertSink`` 持有。"""
+    """POSTs the alert to ``alert_webhook_url``.
+
+    不在图上：由 ``LoggingAlertSink`` 构造并持有，因此**没有**生命周期钩子——
+    ``@start`` / ``@stop`` 只对图上的单元有效，开关连接由持有者转发。
+    """
 
     _client: httpx.AsyncClient | None = None
 
-    def __init__(self, app_config: AppConfig) -> None:
-        self.app_config = app_config
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
 
     async def open(self) -> None:
         self._client = httpx.AsyncClient(timeout=5.0)
@@ -72,7 +75,7 @@ class WebhookBackend:
         # 投递失败不应让整个评估 tick 崩掉——告警管道要尽力送达。
         try:
             response = await self._client.post(
-                self.app_config.alert_webhook_url,
+                self.config.alert_webhook_url,
                 json={
                     "device_id": alert.device_id,
                     "metric": alert.metric,

@@ -1,27 +1,26 @@
-"""Application settings — a plain ``@cocoa`` unit again.
+"""Application settings — a unit that is also a pydantic model.
 
-配置在框架里没有特殊地位。0.9.3 曾把它做成"类级注解即声明"的注入源
-（``app_config: AppConfig`` 自动填），HEAD 把那条路整个删了，连
-``canary_framework.Config`` 基类也一并删了——理由是配置就是一个普通节点，
-不该由框架多认识一种声明方式。
+0.10.0 的单元就是普通 Python 类，所以配置不必在"pydantic 模型"和"图上的节点"之间
+二选一，两个基类一起继承即可::
 
-于是它回到最朴素的写法：一个 ``pydantic-settings`` 的类，加上 ``@cocoa``，
-谁要用谁就写进 ``deps=[AppConfig]``，注入名 ``self.app_config`` 由类名推出。
-好处是它现在是图上的一个真节点——``canary[AppConfig]`` 直接取得到，
-测试要改几个字段，改 ``init()`` 之后那一份共享实例就够了（整张图拿的是同一个对象）。
+    class AppConfig(BaseSettings, Canary): ...
 
-可插拔的模型实现则由 ``embedding_provider`` / ``chat_provider`` 决定：最终版删掉了
-``provide=``，"用哪个实现"因此回到单元内部（见 ``app/infra/ai.py``）。
+``BaseSettings`` 读 ``.env`` 与环境变量，``Canary`` 让它成为图上的一个节点：谁要用谁写
+``config = dep(AppConfig)``，整张图共享同一个实例。
+
+配置在框架里没有任何特殊地位——0.9.x 一度把它做成"类级注解即声明"的注入源，还配了一个
+``canary_framework.Config`` 基类，那条路连同整个装饰器体系一起删掉了。
+
+可插拔的模型实现由 ``embedding_provider`` / ``chat_provider`` 决定，由单元自己读
+（见 ``app/infra/ai.py``）：框架没有装配期的替换入口，图上的实例一律由框架无参构造。
 """
 
+from canary_framework import Canary
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from canary_framework import cocoa
 
-
-@cocoa
-class AppConfig(BaseSettings):
+class AppConfig(BaseSettings, Canary):
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
     log_level: str = "DEBUG"

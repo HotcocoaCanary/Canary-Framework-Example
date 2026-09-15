@@ -15,7 +15,6 @@ array on SQLite, so the identical model runs against both.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, BigInteger, Column, Text
@@ -47,16 +46,16 @@ class Book(SQLModel, table=True):
     __tablename__ = "books"
 
     id: str = Field(primary_key=True, max_length=32)
-    isbn: Optional[str] = Field(default=None, max_length=20, index=True)
+    isbn: str | None = Field(default=None, max_length=20, index=True)
     title: str = Field(max_length=300, index=True)
-    subtitle: Optional[str] = Field(default=None, max_length=300)
+    subtitle: str | None = Field(default=None, max_length=300)
     author: str = Field(max_length=200, index=True)
-    publisher: Optional[str] = Field(default=None, max_length=200)
-    published_year: Optional[int] = Field(default=None)
+    publisher: str | None = Field(default=None, max_length=200)
+    published_year: int | None = Field(default=None)
     category: str = Field(default="未分类", max_length=100, index=True)
     language: str = Field(default="zh", max_length=16)
-    summary: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    tags: Optional[list[str]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    tags: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -88,8 +87,8 @@ class Reader(SQLModel, table=True):
     id: str = Field(primary_key=True, max_length=32)
     card_no: str = Field(max_length=32, index=True, unique=True)
     name: str = Field(max_length=100, index=True)
-    email: Optional[str] = Field(default=None, max_length=200)
-    phone: Optional[str] = Field(default=None, max_length=40)
+    email: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
     # student / normal / vip / staff
     level: str = Field(default="normal", max_length=16)
     # active / suspended
@@ -113,7 +112,7 @@ class Loan(SQLModel, table=True):
     reader_id: str = Field(max_length=32, index=True)
     borrowed_at: datetime = Field(default_factory=utcnow)
     due_at: datetime = Field(index=True)
-    returned_at: Optional[datetime] = Field(default=None)
+    returned_at: datetime | None = Field(default=None)
     renew_count: int = Field(default=0)
     # active / returned / lost
     status: str = Field(default="active", max_length=16, index=True)
@@ -130,10 +129,10 @@ class Reservation(SQLModel, table=True):
     reader_id: str = Field(max_length=32, index=True)
     # waiting / ready / fulfilled / cancelled / expired
     status: str = Field(default="waiting", max_length=16, index=True)
-    copy_id: Optional[str] = Field(default=None, max_length=32)
+    copy_id: str | None = Field(default=None, max_length=32)
     created_at: datetime = Field(default_factory=utcnow)
-    ready_at: Optional[datetime] = Field(default=None)
-    expires_at: Optional[datetime] = Field(default=None)
+    ready_at: datetime | None = Field(default=None)
+    expires_at: datetime | None = Field(default=None)
 
 
 # --- RAG 语料 -----------------------------------------------------------
@@ -145,14 +144,14 @@ class LibraryDoc(SQLModel, table=True):
     __tablename__ = "library_docs"
 
     id: str = Field(primary_key=True, max_length=32)
-    book_id: Optional[str] = Field(default=None, max_length=32, index=True)
+    book_id: str | None = Field(default=None, max_length=32, index=True)
     title: str = Field(max_length=300)
     # catalog / fulltext / policy / upload
     source: str = Field(default="upload", max_length=20, index=True)
     text: str = Field(sa_column=Column(Text))
     # pending / indexed / failed
     status: str = Field(default="pending", max_length=16, index=True)
-    error_msg: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    error_msg: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     chunk_count: int = Field(default=0)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -165,10 +164,10 @@ class DocChunk(SQLModel, table=True):
 
     id: str = Field(primary_key=True, max_length=32)
     doc_id: str = Field(max_length=32, index=True)
-    book_id: Optional[str] = Field(default=None, max_length=32, index=True)
+    book_id: str | None = Field(default=None, max_length=32, index=True)
     chunk_index: int = Field(default=0)
     content: str = Field(sa_column=Column(Text))
-    embedding: Optional[list[float]] = Field(default=None, sa_column=_embedding_column())
+    embedding: list[float] | None = Field(default=None, sa_column=_embedding_column())
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -181,7 +180,7 @@ class ChatSession(SQLModel, table=True):
     __tablename__ = "chat_sessions"
 
     id: str = Field(primary_key=True, max_length=32)
-    reader_id: Optional[str] = Field(default=None, max_length=32, index=True)
+    reader_id: str | None = Field(default=None, max_length=32, index=True)
     title: str = Field(default="新会话", max_length=200)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -196,5 +195,5 @@ class ChatMessage(SQLModel, table=True):
     session_id: str = Field(max_length=32, index=True)
     role: str = Field(max_length=10)
     content: str = Field(sa_column=Column(Text))
-    sources: Optional[list[dict]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    sources: list[dict] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utcnow)

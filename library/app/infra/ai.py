@@ -1,19 +1,17 @@
 """The model layer — embeddings and chat completion, one class per implementation.
 
-选哪个实现，最终版把决定权交还给了**单元自己**：`provide=` 被删除后，运行时没有任何
-入口能把另一个对象放到某个单元的位置上（框架的理由是"图上的实例全部由框架无参构造"，
-一条来源比两条清楚）。于是这里回到 0.9.2 的形状——单元读配置、自己挑后端：
+选哪个实现由**单元自己**决定：框架没有装配期的替换入口，图上的实例一律由框架无参构造
+（"一条来源比两条清楚"）。于是单元读配置、自己挑后端：
 
 ``EmbeddingModel`` / ``ChatModel``
-    图上的单元。默认用离线确定性实现（哈希 n-gram 向量 + 抽取式回答），
-    整套系统因此零外部依赖就能启动；``AppConfig`` 说要 ``openai`` 时，
-    它们在 ``@on_start`` 里换上远端后端并把调用转过去。
+    图上的单元。默认用离线确定性实现（哈希 n-gram 向量 + 抽取式回答），整套系统因此
+    零外部依赖就能启动；``AppConfig`` 说要 ``openai`` 时，它们在 ``@start`` 里换上
+    远端后端并把调用转过去。
 ``RemoteEmbeddingBackend`` / ``RemoteChatBackend``
     OpenAI 兼容端点（litellm、DashScope 兼容模式、vLLM …）。它们**不在图上**，
     由上面的单元构造并持有，生命周期也由上面的单元转发——图外的对象没有钩子。
 
-代价记在 doc/verification-final.md：这个 `if provider == ...` 分支是 0.9.3 的
-`overrides=` 曾经删掉过的东西，最终版把它请了回来。
+测试要整个换掉一个单元是另一回事，走作用域预登记，见 ``app/testing.py``。
 """
 
 from __future__ import annotations
@@ -24,8 +22,8 @@ import re
 from typing import Any
 
 import httpx
+from canary_framework import Canary, dep, start, stop
 
-from canary_framework import cocoa, on_start, on_stop
 from config import AppConfig
 
 _TOKEN = re.compile(r"[a-zA-Z0-9_]+|[一-鿿]")
@@ -48,8 +46,7 @@ def cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-@cocoa(deps=[AppConfig])
-class EmbeddingModel:
+class EmbeddingModel(Canary):
     """Turns text into vectors — a hashed bag-of-n-grams, L2-normalised.
 
     Deterministic and lexical: passages sharing terms with the query land close
@@ -57,17 +54,17 @@ class EmbeddingModel:
     network.
     """
 
-    app_config: AppConfig
+    config = dep(AppConfig)
 
     _remote: RemoteEmbeddingBackend | None = None
 
-    @on_start
+    @start
     async def choose_backend(self) -> None:
-        if self.app_config.embedding_provider == "openai":
-            self._remote = RemoteEmbeddingBackend(self.app_config)
+        if self.config.embedding_provider == "openai":
+            self._remote = RemoteEmbeddingBackend(self.config)
             await self._remote.open()
 
-    @on_stop
+    @stop
     async def close_backend(self) -> None:
         if self._remote is not None:
             await self._remote.aclose()
@@ -75,7 +72,7 @@ class EmbeddingModel:
 
     @property
     def dim(self) -> int:
-        return self.app_config.embedding_dim
+        return self.config.embedding_dim
 
     async def embed(self, text: str) -> list[float]:
         return (await self.embed_many([text]))[0]
@@ -99,8 +96,7 @@ class EmbeddingModel:
         return [v / norm for v in vec] if norm else vec
 
 
-@cocoa(deps=[AppConfig])
-class ChatModel:
+class ChatModel(Canary):
     """Generates an answer from a system prompt and a conversation.
 
     Extractive rather than generative: it quotes the retrieved passage closest
@@ -110,17 +106,17 @@ class ChatModel:
     matches what the remote model is instructed to produce.
     """
 
-    app_config: AppConfig
+    config = dep(AppConfig)
 
     _remote: RemoteChatBackend | None = None
 
-    @on_start
+    @start
     async def choose_backend(self) -> None:
-        if self.app_config.chat_provider == "openai":
-            self._remote = RemoteChatBackend(self.app_config)
+        if self.config.chat_provider == "openai":
+            self._remote = RemoteChatBackend(self.config)
             await self._remote.open()
 
-    @on_stop
+    @stop
     async def close_backend(self) -> None:
         if self._remote is not None:
             await self._remote.aclose()
@@ -151,20 +147,20 @@ class ChatModel:
 class _RemoteBackend:
     """Shared plumbing for the OpenAI-compatible implementations.
 
-    不是 ``@cocoa``，也不在图上：它由持有它的单元构造，因此**没有**生命周期钩子——
-    ``@on_start`` / ``@on_stop`` 只对图上的节点有效。开关连接由持有者转发。
+    不是单元，也不在图上：它由持有它的单元构造，因此**没有**生命周期钩子——
+    ``@start`` / ``@stop`` 只对图上的节点有效。开关连接由持有者转发。
     """
 
     _client: httpx.AsyncClient | None = None
 
-    def __init__(self, app_config: AppConfig) -> None:
-        self.app_config = app_config
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
 
     async def open(self) -> None:
         self._client = httpx.AsyncClient(
-            base_url=self.app_config.llm_api_base.rstrip("/"),
-            headers={"Authorization": f"Bearer {self.app_config.llm_api_key}"},
-            timeout=self.app_config.llm_timeout_seconds,
+            base_url=self.config.llm_api_base.rstrip("/"),
+            headers={"Authorization": f"Bearer {self.config.llm_api_key}"},
+            timeout=self.config.llm_timeout_seconds,
         )
 
     async def aclose(self) -> None:
@@ -184,7 +180,7 @@ class RemoteEmbeddingBackend(_RemoteBackend):
 
     @property
     def dim(self) -> int:
-        return self.app_config.embedding_dim
+        return self.config.embedding_dim
 
     async def embed(self, text: str) -> list[float]:
         return (await self.embed_many([text]))[0]
@@ -194,7 +190,7 @@ class RemoteEmbeddingBackend(_RemoteBackend):
             return []
         resp = await self.client.post(
             "/v1/embeddings",
-            json={"model": self.app_config.embedding_model_name, "input": texts},
+            json={"model": self.config.embedding_model_name, "input": texts},
         )
         resp.raise_for_status()
         payload = resp.json()
@@ -223,7 +219,7 @@ class RemoteChatBackend(_RemoteBackend):
         resp = await self.client.post(
             "/v1/chat/completions",
             json={
-                "model": self.app_config.chat_model_name,
+                "model": self.config.chat_model_name,
                 "messages": messages,
                 "temperature": 0.2,
             },

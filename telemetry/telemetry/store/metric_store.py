@@ -9,25 +9,23 @@ from __future__ import annotations
 
 from collections import deque
 
+from canary_framework import Canary, dep, start
+
 from telemetry.domain.models import Sample
-from canary_framework import cocoa, on_start
 from telemetry.settings import AppConfig
 
 
-@cocoa(deps=[AppConfig])
-class MetricStore:
-    app_config: AppConfig
-
-    _series: dict[tuple[str, str], deque[Sample]]
-    _capacity: int
+class MetricStore(Canary):
+    config = dep(AppConfig)
 
     def __init__(self) -> None:
-        self._series = {}
+        self._series: dict[tuple[str, str], deque[Sample]] = {}
         self._capacity = 600
 
-    @on_start
+    @start
     async def setup(self) -> None:
-        self._capacity = self.app_config.series_capacity
+        # 依赖从 @init 起可用，所以这里读得到配置。
+        self._capacity = self.config.series_capacity
 
     def record(self, sample: Sample) -> None:
         key = (sample.device_id, sample.metric)

@@ -8,6 +8,8 @@ holds, or says it has none.
 
 from __future__ import annotations
 
+from canary_framework import Canary, dep
+
 from app.common.errors import NotFoundError, ValidationError
 from app.common.ids import new_id
 from app.common.response import PageResult, offset_of
@@ -27,7 +29,6 @@ from app.module.db.repository.chat_repository import (
 )
 from app.module.rag.schema import Passage
 from app.module.rag.service import RagService
-from canary_framework import cocoa
 
 INSTRUCTION = (
     "你是图书馆的智能馆员助手。只能依据下面提供的馆藏资料回答读者问题，"
@@ -38,21 +39,12 @@ INSTRUCTION = (
 _HISTORY_TURNS = 6
 
 
-@cocoa(
-    deps=[
-        Database,
-        RagService,
-        ChatModel,
-        ChatSessionRepository,
-        ChatMessageRepository,
-    ]
-)
-class AssistantService:
-    database: Database
-    rag_service: RagService
-    chat_model: ChatModel
-    chat_session_repository: ChatSessionRepository
-    chat_message_repository: ChatMessageRepository
+class AssistantService(Canary):
+    database = dep(Database)
+    rag = dep(RagService)
+    model = dep(ChatModel)
+    sessions = dep(ChatSessionRepository)
+    messages = dep(ChatMessageRepository)
 
     # -- 会话 ----------------------------------------------------------
     async def create_session(self, request: CreateChatSessionRequest) -> ChatSessionResponse:
@@ -60,14 +52,14 @@ class AssistantService:
             chat = ChatSession(
                 id=new_id("cs"), reader_id=request.reader_id, title=request.title
             )
-            await self.chat_session_repository.add(session, chat)
+            await self.sessions.add(session, chat)
             return _to_session(chat)
 
     async def list_sessions(
         self, *, reader_id: str | None, page: int, size: int
     ) -> PageResult[ChatSessionResponse]:
         async with self.database.read() as session:
-            rows, total = await self.chat_session_repository.list_for_reader(
+            rows, total = await self.sessions.list_for_reader(
                 session, reader_id, offset=offset_of(page, size), limit=size
             )
             return PageResult.of([_to_session(r) for r in rows], total, page, size)
@@ -75,14 +67,14 @@ class AssistantService:
     async def list_messages(self, session_id: str) -> list[ChatMessageResponse]:
         async with self.database.read() as session:
             await self._require_session(session, session_id)
-            rows = await self.chat_message_repository.list_by_session(session, session_id)
+            rows = await self.messages.list_by_session(session, session_id)
             return [_to_message(m) for m in rows]
 
     async def delete_session(self, session_id: str) -> str:
         async with self.database.begin() as session:
             chat = await self._require_session(session, session_id)
-            removed = await self.chat_message_repository.delete_by_session(session, session_id)
-            await self.chat_session_repository.delete(session, chat)
+            removed = await self.messages.delete_by_session(session, session_id)
+            await self.sessions.delete(session, chat)
             return f"会话 {session_id} 已删除（连带 {removed} 条消息）"
 
     # -- 问答 ----------------------------------------------------------
@@ -96,16 +88,16 @@ class AssistantService:
             async with self.database.read() as session:
                 await self._require_session(session, session_id)
                 history = _as_history(
-                    await self.chat_message_repository.list_by_session(session, session_id)
+                    await self.messages.list_by_session(session, session_id)
                 )
 
-        passages = await self.rag_service.retrieve(
+        passages = await self.rag.retrieve(
             question, top_k=request.top_k, book_id=request.book_id
         )
         answer = (
             NO_ANSWER
             if not passages
-            else await self.chat_model.complete(
+            else await self.model.complete(
                 instruction=INSTRUCTION,
                 context=[p.content for p in passages],
                 history=history,
@@ -130,13 +122,13 @@ class AssistantService:
     ) -> None:
         async with self.database.begin() as session:
             chat = await self._require_session(session, session_id)
-            await self.chat_message_repository.add(
+            await self.messages.add(
                 session,
                 ChatMessage(
                     id=new_id("msg"), session_id=session_id, role="user", content=question
                 ),
             )
-            await self.chat_message_repository.add(
+            await self.messages.add(
                 session,
                 ChatMessage(
                     id=new_id("msg"),
@@ -150,7 +142,7 @@ class AssistantService:
             session.add(chat)
 
     async def _require_session(self, session, session_id: str) -> ChatSession:
-        chat = await self.chat_session_repository.get(session, session_id)
+        chat = await self.sessions.get(session, session_id)
         if chat is None:
             raise NotFoundError(f"会话 {session_id} 不存在")
         return chat

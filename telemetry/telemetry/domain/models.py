@@ -7,15 +7,15 @@ Scenario 2 keeps everything in memory on purpose: it isolates the framework's
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     WARNING = "warning"
     CRITICAL = "critical"
 
 
-class AlertKind(str, Enum):
+class AlertKind(StrEnum):
     THRESHOLD = "threshold"
     RATE = "rate"
     OFFLINE = "offline"

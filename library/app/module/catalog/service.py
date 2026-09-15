@@ -7,6 +7,8 @@ both land or neither does.
 
 from __future__ import annotations
 
+from canary_framework import Canary, dep
+
 from app.common.errors import ConflictError, NotFoundError, ValidationError
 from app.common.ids import new_id
 from app.common.response import PageResult, offset_of
@@ -28,37 +30,25 @@ from app.module.db.repository.copy_repository import BookCopyRepository
 from app.module.db.repository.doc_repository import LibraryDocRepository
 from app.module.db.repository.loan_repository import LoanRepository
 from app.module.db.repository.reservation_repository import ReservationRepository
-from canary_framework import cocoa
 
 _COPY_STATUSES = {"available", "on_loan", "reserved", "lost", "repairing", "withdrawn"}
 _STAFF_SETTABLE = {"available", "lost", "repairing", "withdrawn"}
 
 
-@cocoa(
-    deps=[
-        Database,
-        BookRepository,
-        BookCopyRepository,
-        LoanRepository,
-        ReservationRepository,
-        LibraryDocRepository,
-        DocChunkRepository,
-    ]
-)
-class CatalogService:
-    database: Database
-    book_repository: BookRepository
-    book_copy_repository: BookCopyRepository
-    loan_repository: LoanRepository
-    reservation_repository: ReservationRepository
-    library_doc_repository: LibraryDocRepository
-    doc_chunk_repository: DocChunkRepository
+class CatalogService(Canary):
+    database = dep(Database)
+    books = dep(BookRepository)
+    copies = dep(BookCopyRepository)
+    loans = dep(LoanRepository)
+    reservations = dep(ReservationRepository)
+    docs = dep(LibraryDocRepository)
+    chunks = dep(DocChunkRepository)
 
     # -- 书目 ----------------------------------------------------------
     async def create_book(self, request: CreateBookRequest) -> BookResponse:
         async with self.database.begin() as session:
             if request.isbn:
-                existing = await self.book_repository.get_by_isbn(session, request.isbn)
+                existing = await self.books.get_by_isbn(session, request.isbn)
                 if existing:
                     raise ConflictError(f"ISBN {request.isbn} 已存在（书目 {existing.id}）")
 
@@ -75,17 +65,17 @@ class CatalogService:
                 summary=request.summary,
                 tags=request.tags,
             )
-            await self.book_repository.add(session, book)
+            await self.books.add(session, book)
             for _ in range(request.copies):
                 await self._add_copy(session, book, request.location)
-            counts = await self.book_copy_repository.count_by_status(session, book.id)
+            counts = await self.copies.count_by_status(session, book.id)
             return _to_book(book, counts, 0)
 
     async def get_book(self, book_id: str) -> BookResponse:
         async with self.database.read() as session:
             book = await self._require_book(session, book_id)
-            counts = await self.book_copy_repository.count_by_status(session, book_id)
-            holds = await self.reservation_repository.count_open(session, book_id)
+            counts = await self.copies.count_by_status(session, book_id)
+            holds = await self.reservations.count_open(session, book_id)
             return _to_book(book, counts, holds)
 
     async def search_books(
@@ -98,7 +88,7 @@ class CatalogService:
         size: int,
     ) -> PageResult[BookResponse]:
         async with self.database.read() as session:
-            books, total = await self.book_repository.search(
+            books, total = await self.books.search(
                 session,
                 keyword=keyword,
                 category=category,
@@ -106,7 +96,7 @@ class CatalogService:
                 offset=offset_of(page, size),
                 limit=size,
             )
-            counts = await self.book_copy_repository.counts_for_books(
+            counts = await self.copies.counts_for_books(
                 session, [b.id for b in books]
             )
             records = [_to_book(b, counts.get(b.id, {}), 0) for b in books]
@@ -122,31 +112,31 @@ class CatalogService:
                 setattr(book, key, value)
             book.updated_at = utcnow()
             session.add(book)
-            counts = await self.book_copy_repository.count_by_status(session, book_id)
-            holds = await self.reservation_repository.count_open(session, book_id)
+            counts = await self.copies.count_by_status(session, book_id)
+            holds = await self.reservations.count_open(session, book_id)
             return _to_book(book, counts, holds)
 
     async def delete_book(self, book_id: str) -> str:
         """Withdraw a title — refused while any copy is still out on loan."""
         async with self.database.begin() as session:
             book = await self._require_book(session, book_id)
-            counts = await self.book_copy_repository.count_by_status(session, book_id)
+            counts = await self.copies.count_by_status(session, book_id)
             if counts.get("on_loan", 0):
                 raise ConflictError(f"仍有 {counts['on_loan']} 册在借，无法删除书目")
 
-            for doc in await self.library_doc_repository.list_by_book(session, book_id):
-                await self.doc_chunk_repository.delete_by_doc(session, doc.id)
-                await self.library_doc_repository.delete(session, doc)
-            await self.doc_chunk_repository.delete_by_book(session, book_id)
-            await self.reservation_repository.delete_by_book(session, book_id)
-            await self.loan_repository.delete_by_book(session, book_id)
-            await self.book_copy_repository.delete_by_book(session, book_id)
-            await self.book_repository.delete(session, book)
+            for doc in await self.docs.list_by_book(session, book_id):
+                await self.chunks.delete_by_doc(session, doc.id)
+                await self.docs.delete(session, doc)
+            await self.chunks.delete_by_book(session, book_id)
+            await self.reservations.delete_by_book(session, book_id)
+            await self.loans.delete_by_book(session, book_id)
+            await self.copies.delete_by_book(session, book_id)
+            await self.books.delete(session, book)
             return f"书目 {book_id} 及其馆藏已注销"
 
     async def categories(self) -> list[CategoryCount]:
         async with self.database.read() as session:
-            rows = await self.book_repository.categories(session)
+            rows = await self.books.categories(session)
             return [CategoryCount(category=name, books=count) for name, count in rows]
 
     # -- 馆藏副本 ------------------------------------------------------
@@ -162,12 +152,12 @@ class CatalogService:
     async def list_copies(self, book_id: str) -> list[CopyResponse]:
         async with self.database.read() as session:
             await self._require_book(session, book_id)
-            copies = await self.book_copy_repository.list_by_book(session, book_id)
+            copies = await self.copies.list_by_book(session, book_id)
             return [_to_copy(c) for c in copies]
 
     async def update_copy(self, copy_id: str, request: UpdateCopyRequest) -> CopyResponse:
         async with self.database.begin() as session:
-            copy = await self.book_copy_repository.get(session, copy_id)
+            copy = await self.copies.get(session, copy_id)
             if copy is None:
                 raise NotFoundError(f"馆藏副本 {copy_id} 不存在")
             if request.status is not None:
@@ -194,10 +184,10 @@ class CatalogService:
             barcode=new_id("bc").replace("bc_", "B"),
             location=location,
         )
-        return await self.book_copy_repository.add(session, copy)
+        return await self.copies.add(session, copy)
 
     async def _require_book(self, session, book_id: str) -> Book:
-        book = await self.book_repository.get(session, book_id)
+        book = await self.books.get(session, book_id)
         if book is None:
             raise NotFoundError(f"书目 {book_id} 不存在")
         return book

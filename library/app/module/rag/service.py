@@ -1,13 +1,14 @@
 """Retrieval — indexing the corpus and finding the passages that answer a query.
 
-Indexing is synchronous on purpose.  Canary 0.9 has no background-task facility
-(see ``doc/bug/010-no-background-tasks.md``), so a fire-and-forget
-``asyncio.create_task`` would run unsupervised, outlive the request with no way
-to report failure, and race the ASGI shutdown.  The document therefore carries a
-``status`` field, which is where a future queue would write its progress.
+建索引是同步的，这是有意的。框架的核心只做依赖注入与生命周期，没有后台任务设施，
+一个 fire-and-forget 的 ``asyncio.create_task`` 会脱离监管、活得比请求长、失败无人知晓，
+还会和 ASGI 的关停赛跑。文档因此带一个 ``status`` 字段——将来接队列时，进度写在那里。
+（场景二自带的 ``SupervisedTasks`` 就是补这块的，两个场景各写了一份。）
 """
 
 from __future__ import annotations
+
+from canary_framework import Canary, dep
 
 from app.common.errors import NotFoundError, ValidationError
 from app.common.ids import new_id
@@ -20,31 +21,19 @@ from app.module.db.repository.chunk_repository import DocChunkRepository
 from app.module.db.repository.doc_repository import LibraryDocRepository
 from app.module.rag.chunker import TextChunker
 from app.module.rag.schema import DocResponse, IndexTextRequest, Passage
-from canary_framework import cocoa
 from config import AppConfig
 
 _SOURCES = {"catalog", "fulltext", "policy", "upload"}
 
 
-@cocoa(
-    deps=[
-        AppConfig,
-        Database,
-        EmbeddingModel,
-        TextChunker,
-        LibraryDocRepository,
-        DocChunkRepository,
-        BookRepository,
-    ]
-)
-class RagService:
-    app_config: AppConfig
-    database: Database
-    embedding_model: EmbeddingModel
-    text_chunker: TextChunker
-    library_doc_repository: LibraryDocRepository
-    doc_chunk_repository: DocChunkRepository
-    book_repository: BookRepository
+class RagService(Canary):
+    config = dep(AppConfig)
+    database = dep(Database)
+    embeddings = dep(EmbeddingModel)
+    chunker = dep(TextChunker)
+    docs = dep(LibraryDocRepository)
+    chunks = dep(DocChunkRepository)
+    books = dep(BookRepository)
 
     # -- 建索引 --------------------------------------------------------
     async def index_text(self, request: IndexTextRequest) -> DocResponse:
@@ -52,7 +41,7 @@ class RagService:
             raise ValidationError(f"未知的文献来源: {request.source}")
 
         async with self.database.begin() as session:
-            if request.book_id and await self.book_repository.get(session, request.book_id) is None:
+            if request.book_id and await self.books.get(session, request.book_id) is None:
                 raise NotFoundError(f"书目 {request.book_id} 不存在")
             doc = LibraryDoc(
                 id=new_id("doc"),
@@ -61,7 +50,7 @@ class RagService:
                 source=request.source,
                 text=request.text,
             )
-            await self.library_doc_repository.add(session, doc)
+            await self.docs.add(session, doc)
             await self._embed_into(session, doc)
             return _to_doc(doc)
 
@@ -73,14 +62,14 @@ class RagService:
         「有没有讲分布式系统的书」 hit the catalogue rather than only full texts.
         """
         async with self.database.begin() as session:
-            book = await self.book_repository.get(session, book_id)
+            book = await self.books.get(session, book_id)
             if book is None:
                 raise NotFoundError(f"书目 {book_id} 不存在")
 
-            for existing in await self.library_doc_repository.list_by_book(session, book_id):
+            for existing in await self.docs.list_by_book(session, book_id):
                 if existing.source == "catalog":
-                    await self.doc_chunk_repository.delete_by_doc(session, existing.id)
-                    await self.library_doc_repository.delete(session, existing)
+                    await self.chunks.delete_by_doc(session, existing.id)
+                    await self.docs.delete(session, existing)
 
             doc = LibraryDoc(
                 id=new_id("doc"),
@@ -89,22 +78,22 @@ class RagService:
                 source="catalog",
                 text=_catalog_card(book),
             )
-            await self.library_doc_repository.add(session, doc)
+            await self.docs.add(session, doc)
             await self._embed_into(session, doc)
             return _to_doc(doc)
 
     async def reindex(self, doc_id: str) -> DocResponse:
         async with self.database.begin() as session:
             doc = await self._require_doc(session, doc_id)
-            await self.doc_chunk_repository.delete_by_doc(session, doc.id)
+            await self.chunks.delete_by_doc(session, doc.id)
             await self._embed_into(session, doc)
             return _to_doc(doc)
 
     async def delete_doc(self, doc_id: str) -> str:
         async with self.database.begin() as session:
             doc = await self._require_doc(session, doc_id)
-            removed = await self.doc_chunk_repository.delete_by_doc(session, doc.id)
-            await self.library_doc_repository.delete(session, doc)
+            removed = await self.chunks.delete_by_doc(session, doc.id)
+            await self.docs.delete(session, doc)
             return f"文献 {doc_id} 已删除（连带 {removed} 个片段）"
 
     # -- 查询 ----------------------------------------------------------
@@ -116,7 +105,7 @@ class RagService:
         self, *, book_id: str | None, status: str | None, page: int, size: int
     ) -> PageResult[DocResponse]:
         async with self.database.read() as session:
-            docs, total = await self.library_doc_repository.search(
+            docs, total = await self.docs.search(
                 session,
                 book_id=book_id,
                 status=status,
@@ -131,26 +120,26 @@ class RagService:
         """Embed the query and return the closest passages above the noise floor."""
         if not query.strip():
             raise ValidationError("检索内容不能为空")
-        limit = top_k or self.app_config.retrieve_top_k
+        limit = top_k or self.config.retrieve_top_k
 
         async with self.database.read() as session:
-            vector = await self.embedding_model.embed(query)
-            hits = await self.doc_chunk_repository.search(
+            vector = await self.embeddings.embed(query)
+            hits = await self.chunks.search(
                 session, vector, top_k=limit, book_id=book_id
             )
-            hits = [(c, s) for c, s in hits if s >= self.app_config.min_similarity]
+            hits = [(c, s) for c, s in hits if s >= self.config.min_similarity]
             if not hits:
                 return []
 
             docs = {
                 d.id: d
-                for d in await self.library_doc_repository.get_many(
+                for d in await self.docs.get_many(
                     session, [c.doc_id for c, _ in hits]
                 )
             }
             book_ids = [c.book_id for c, _ in hits if c.book_id]
             books = {
-                b.id: b for b in await self.book_repository.get_many(session, book_ids)
+                b.id: b for b in await self.books.get_many(session, book_ids)
             }
             return [
                 Passage(
@@ -169,7 +158,7 @@ class RagService:
     # -- internals -----------------------------------------------------
     async def _embed_into(self, session, doc: LibraryDoc) -> None:
         """Split, embed and store — the document's ``status`` records the outcome."""
-        pieces = self.text_chunker.split(doc.text)
+        pieces = self.chunker.split(doc.text)
         if not pieces:
             doc.status = "failed"
             doc.error_msg = "正文切分后为空"
@@ -178,7 +167,7 @@ class RagService:
             session.add(doc)
             return
 
-        vectors = await self.embedding_model.embed_many(pieces)
+        vectors = await self.embeddings.embed_many(pieces)
         chunks = [
             DocChunk(
                 id=new_id("ck"),
@@ -190,7 +179,7 @@ class RagService:
             )
             for index, (piece, vector) in enumerate(zip(pieces, vectors, strict=True))
         ]
-        await self.doc_chunk_repository.add_many(session, chunks)
+        await self.chunks.add_many(session, chunks)
 
         doc.status = "indexed"
         doc.error_msg = None
@@ -199,7 +188,7 @@ class RagService:
         session.add(doc)
 
     async def _require_doc(self, session, doc_id: str) -> LibraryDoc:
-        doc = await self.library_doc_repository.get(session, doc_id)
+        doc = await self.docs.get(session, doc_id)
         if doc is None:
             raise NotFoundError(f"文献 {doc_id} 不存在")
         return doc

@@ -98,7 +98,9 @@ ipython_config.py
 #   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
-uv.lock
+#   本仓库两个示例都是应用而非库，而且要能被单独拷走/挂成子模块运行
+#   （library/Dockerfile 就 COPY 了 uv.lock），所以锁文件入库。
+# uv.lock
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.

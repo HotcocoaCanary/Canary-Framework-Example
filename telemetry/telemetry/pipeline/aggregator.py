@@ -4,29 +4,29 @@ from __future__ import annotations
 
 import math
 
+from canary_framework import Canary, dep
+
 from telemetry.domain.models import WindowStat
 from telemetry.infra.clock import Clock
+from telemetry.settings import AppConfig
 from telemetry.store.device_registry import DeviceRegistry
 from telemetry.store.metric_store import MetricStore
-from canary_framework import cocoa
-from telemetry.settings import AppConfig
 
 
-@cocoa(deps=[AppConfig, Clock, MetricStore, DeviceRegistry])
-class WindowAggregator:
-    app_config: AppConfig
-    clock: Clock
-    metric_store: MetricStore
-    device_registry: DeviceRegistry
+class WindowAggregator(Canary):
+    config = dep(AppConfig)
+    clock = dep(Clock)
+    store = dep(MetricStore)
+    devices = dep(DeviceRegistry)
 
     def current(self) -> list[WindowStat]:
         """Aggregate the most recent window for every enabled (device, metric)."""
         until = self.clock.now()
-        since = until - self.app_config.window_seconds
+        since = until - self.config.window_seconds
         stats: list[WindowStat] = []
-        for device in self.device_registry.enabled():
+        for device in self.devices.enabled():
             for metric in device.metrics:
-                samples = self.metric_store.window(device.id, metric, since=since, until=until)
+                samples = self.store.window(device.id, metric, since=since, until=until)
                 if not samples:
                     continue
                 stats.append(_summarise(device.id, metric, samples, since, until))

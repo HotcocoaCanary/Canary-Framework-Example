@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,12 +11,12 @@ from app.module.rag.schema import Passage
 
 class CreateChatSessionRequest(BaseModel):
     title: str = Field(default="新会话", max_length=200, description="会话标题")
-    reader_id: Optional[str] = Field(default=None, description="归属读者，可留空")
+    reader_id: str | None = Field(default=None, description="归属读者，可留空")
 
 
 class ChatSessionResponse(BaseModel):
     id: str
-    reader_id: Optional[str] = None
+    reader_id: str | None = None
     title: str
     created_at: datetime
     updated_at: datetime
@@ -25,12 +24,12 @@ class ChatSessionResponse(BaseModel):
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000, description="读者的问题")
-    top_k: Optional[int] = Field(default=None, ge=1, le=20, description="检索片段数")
-    book_id: Optional[str] = Field(default=None, description="限定在某本书的资料中作答")
+    top_k: int | None = Field(default=None, ge=1, le=20, description="检索片段数")
+    book_id: str | None = Field(default=None, description="限定在某本书的资料中作答")
 
 
 class AnswerResponse(BaseModel):
-    session_id: Optional[str] = None
+    session_id: str | None = None
     question: str
     answer: str
     sources: list[Passage] = Field(default_factory=list, description="作答依据的馆藏片段")
@@ -42,5 +41,5 @@ class ChatMessageResponse(BaseModel):
     session_id: str
     role: str
     content: str
-    sources: Optional[list[dict]] = None
+    sources: list[dict] | None = None
     created_at: datetime

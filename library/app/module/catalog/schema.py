@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -11,28 +10,28 @@ from pydantic import BaseModel, Field
 class CreateBookRequest(BaseModel):
     title: str = Field(max_length=300, description="书名")
     author: str = Field(max_length=200, description="作者")
-    isbn: Optional[str] = Field(default=None, max_length=20, description="ISBN")
-    subtitle: Optional[str] = Field(default=None, max_length=300, description="副标题")
-    publisher: Optional[str] = Field(default=None, max_length=200, description="出版社")
-    published_year: Optional[int] = Field(default=None, ge=0, le=2200, description="出版年份")
+    isbn: str | None = Field(default=None, max_length=20, description="ISBN")
+    subtitle: str | None = Field(default=None, max_length=300, description="副标题")
+    publisher: str | None = Field(default=None, max_length=200, description="出版社")
+    published_year: int | None = Field(default=None, ge=0, le=2200, description="出版年份")
     category: str = Field(default="未分类", max_length=100, description="分类")
     language: str = Field(default="zh", max_length=16, description="语种")
-    summary: Optional[str] = Field(default=None, description="内容简介")
-    tags: Optional[list[str]] = Field(default=None, description="标签")
+    summary: str | None = Field(default=None, description="内容简介")
+    tags: list[str] | None = Field(default=None, description="标签")
     copies: int = Field(default=0, ge=0, le=100, description="同时入藏的副本数")
     location: str = Field(default="总馆", max_length=120, description="副本馆藏位置")
 
 
 class UpdateBookRequest(BaseModel):
-    title: Optional[str] = Field(default=None, max_length=300)
-    author: Optional[str] = Field(default=None, max_length=200)
-    subtitle: Optional[str] = Field(default=None, max_length=300)
-    publisher: Optional[str] = Field(default=None, max_length=200)
-    published_year: Optional[int] = Field(default=None, ge=0, le=2200)
-    category: Optional[str] = Field(default=None, max_length=100)
-    language: Optional[str] = Field(default=None, max_length=16)
-    summary: Optional[str] = Field(default=None)
-    tags: Optional[list[str]] = Field(default=None)
+    title: str | None = Field(default=None, max_length=300)
+    author: str | None = Field(default=None, max_length=200)
+    subtitle: str | None = Field(default=None, max_length=300)
+    publisher: str | None = Field(default=None, max_length=200)
+    published_year: int | None = Field(default=None, ge=0, le=2200)
+    category: str | None = Field(default=None, max_length=100)
+    language: str | None = Field(default=None, max_length=16)
+    summary: str | None = Field(default=None)
+    tags: list[str] | None = Field(default=None)
 
 
 class HoldingsSummary(BaseModel):
@@ -45,16 +44,16 @@ class HoldingsSummary(BaseModel):
 
 class BookResponse(BaseModel):
     id: str
-    isbn: Optional[str] = None
+    isbn: str | None = None
     title: str
-    subtitle: Optional[str] = None
+    subtitle: str | None = None
     author: str
-    publisher: Optional[str] = None
-    published_year: Optional[int] = None
+    publisher: str | None = None
+    published_year: int | None = None
     category: str
     language: str
-    summary: Optional[str] = None
-    tags: Optional[list[str]] = None
+    summary: str | None = None
+    tags: list[str] | None = None
     holdings: HoldingsSummary = Field(default_factory=HoldingsSummary)
     created_at: datetime
     updated_at: datetime
@@ -66,10 +65,10 @@ class AddCopiesRequest(BaseModel):
 
 
 class UpdateCopyRequest(BaseModel):
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None, description="available / lost / repairing / withdrawn"
     )
-    location: Optional[str] = Field(default=None, max_length=120)
+    location: str | None = Field(default=None, max_length=120)
 
 
 class CopyResponse(BaseModel):

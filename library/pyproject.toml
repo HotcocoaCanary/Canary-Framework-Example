@@ -28,9 +28,18 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "httpx>=0.28.0",
+    # starlette 1.6 的 TestClient 要求 httpx2；用 httpx 只会警告，但没必要留着
+    "httpx2>=2.10.0",
 ]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]

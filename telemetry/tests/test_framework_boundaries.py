@@ -1,25 +1,33 @@
-"""Framework boundaries surfaced by the *daemon* shape — scenario 1 cannot reach these.
+"""Executable notes on canary-framework 0.10.0, written from the daemon's side.
 
-An HTTP app never sees most of this: uvicorn owns the lifecycle, a startup
-failure just kills the process, and nothing runs between requests.  A
-long-running daemon owns its own lifecycle, so the framework's lifecycle
-semantics become load-bearing.
+守护进程形态压得到 HTTP 应用压不到的地方：uvicorn 拥有生命周期时，启动失败只是打死
+进程；守护进程自己拥有生命周期，框架的失败语义与回收语义就成了承重墙。
 
-最终版（``release/0.9.3`` @ ``322315e``）把替换入口 ``provide=`` 整个删掉了：
-图上的实例全部由框架无参构造。原来钉住 ``provide`` 语义的四条测试因此改成钉住
-**它不在了**，以及在没有它之后测试还能怎么写。生命周期的四条修复（#012 / #014 /
-回滚 / 幂等 stop）照旧从正面钉住。
+这一版把 0.9.x 时代的一批断言整个换掉了——``@cocoa``、``Canary(*roots)`` 容器、
+``LifecycleState`` 八态状态机、``provide=``、按类名 snake_case 注入全部不存在了。
+下面钉的是 0.10.0 **真正**的行为，以及它相对 0.9.x 修好的地方。
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 
 import pytest
-
-from canary_framework import Canary, LifecycleState, cocoa, on_init, on_start, on_stop
-from canary_framework.common.error import ConstructionError, LifecycleError
+from canary_framework import (
+    Canary,
+    CircularDependencyError,
+    ConstructionError,
+    DeclarationError,
+    LifecycleError,
+    Phase,
+    advance,
+    dep,
+    deps_of,
+    init,
+    scope_of,
+    start,
+    stop,
+)
 
 log: list[str] = []
 
@@ -30,47 +38,241 @@ def _clear_log():
     yield
 
 
-# --- #012：启动失败现在会回滚 --------------------------------------------
+# --- 声明 --------------------------------------------------------------
 
 
-@cocoa
-class Acquires:
-    @on_start
-    async def start(self) -> None:
-        log.append("Acquires.start")
+async def test_dep_rejects_a_non_unit_at_class_body_time():
+    """``dep()`` 在类体求值那一刻就检查，错误指向写下它的那一行，不必等到运行。"""
+    with pytest.raises(DeclarationError, match="not a Canary subclass"):
 
-    @on_stop
-    async def stop(self) -> None:
-        log.append("Acquires.stop")
+        class Bad(Canary):
+            oops = dep(dict)  # type: ignore[type-var]
 
 
-@cocoa(deps=[Acquires])
-class HalfStarted:
-    acquires: Acquires
+async def test_the_attribute_name_is_yours_and_the_type_is_inferred():
+    """0.9.x 的注入名是被依赖类名的 snake_case；现在由使用者决定。"""
 
-    @on_start
-    async def start(self) -> None:
-        log.append("HalfStarted.start")
-        raise RuntimeError("启动失败")
+    class VeryLongImplementationName(Canary):
+        value = 7
 
-    @on_stop
-    async def stop(self) -> None:
-        # 失败单元自己也在台账上，所以这个钩子会跑——它必须容忍
-        # 「@on_start 只跑了一半」的自己。
-        log.append("HalfStarted.stop")
+    class User(Canary):
+        thing = dep(VeryLongImplementationName)  # 抽象的名字
+
+    async with User() as user:
+        assert user.thing.value == 7
+        assert not hasattr(user, "very_long_implementation_name")
+
+
+async def test_two_attributes_pointing_at_one_type_are_one_dependency():
+    class Shared(Canary):
+        pass
+
+    class User(Canary):
+        left = dep(Shared)
+        right = dep(Shared)
+
+    assert deps_of(User) == (Shared,)
+    async with User() as user:
+        assert user.left is user.right
+
+
+async def test_declarations_survive_from_future_annotations():
+    """描述符持有类对象本身，不需要求值——0.9.x 的类级注解注入在这里会静默失效。"""
+    from tests import _future_annotations_unit as module
+
+    async with module.Consumer() as consumer:
+        assert consumer.provider.value == "ok"
+
+
+# --- 构造 --------------------------------------------------------------
+
+
+async def test_a_unit_that_needs_constructor_arguments_is_told_where_to_put_them():
+    """单元一律由框架无参构造，错误信息只给得出一条出路。"""
+
+    class Settings(Canary):
+        dsn = "postgres://x"
+
+    class Engine(Canary):
+        settings = dep(Settings)
+
+        def __init__(self, pool_size: int) -> None:
+            self.pool_size = pool_size
+
+    class Service(Canary):
+        engine = dep(Engine)
+
+    with pytest.raises(ConstructionError) as caught:
+        await Service().init()
+    message = str(caught.value)
+    assert "dep(" in message
+    assert "@init" in message or "@start" in message
+
+
+async def test_reading_a_dependency_before_the_lifecycle_begins_is_refused():
+    """依赖从 ``@init`` 起才可用；在 ``__init__`` 里读会抛 ``LifecycleError``。"""
+
+    class Provider(Canary):
+        pass
+
+    class TooEager(Canary):
+        provider = dep(Provider)
+
+        def __init__(self) -> None:
+            self.stolen = self.provider  # 生命周期还没开始
+
+    with pytest.raises(LifecycleError, match="before the lifecycle begins"):
+        await TooEager().init()
+
+
+async def test_a_cycle_reports_the_path_it_actually_walked():
+    class A(Canary):
+        pass
+
+    class B(Canary):
+        a = dep(A)
+
+    A.b = dep(B)  # type: ignore[attr-defined]
+    A.b.__set_name__(A, "b")  # type: ignore[attr-defined]
+
+    with pytest.raises(CircularDependencyError) as caught:
+        await A().init()
+    assert caught.value.cycle[0] is caught.value.cycle[-1]
+
+
+# --- 阶段与栅栏 ---------------------------------------------------------
+
+
+async def test_every_init_finishes_before_any_start_runs():
+    """全部 ``@init`` 完成之后，才有任何 ``@start`` 运行——这是一道全图栅栏。"""
+
+    class Dependency(Canary):
+        @init
+        async def i(self) -> None:
+            log.append("dep.init")
+
+        @start
+        async def s(self) -> None:
+            log.append("dep.start")
+
+    class Root(Canary):
+        dependency = dep(Dependency)
+
+        @init
+        async def i(self) -> None:
+            log.append("root.init")
+
+        @start
+        async def s(self) -> None:
+            log.append("root.start")
+
+    async with Root():
+        pass
+    assert log == ["dep.init", "root.init", "dep.start", "root.start"]
+
+
+async def test_a_fourth_phase_needs_no_registration():
+    """``Phase("migrate")`` 就是第四个阶段，不必向框架登记。"""
+    migrate = Phase("migrate", after=init)
+
+    class Schema(Canary):
+        @migrate
+        async def apply(self) -> None:
+            log.append("migrated")
+
+    schema = Schema()
+    await schema.init()
+    await advance(schema, migrate)
+    assert log == ["migrated"]
+
+
+async def test_overriding_a_hook_replaces_it_instead_of_adding_to_it():
+    """钩子按属性名解析，语义与普通方法一致——0.9.x 按函数身份去重，覆盖变成了叠加。"""
+
+    class Base(Canary):
+        @start
+        async def go(self) -> None:
+            log.append("base")
+
+    class Child(Base):
+        @start
+        async def go(self) -> None:
+            log.append("child")
+
+    async with Child():
+        pass
+    assert log == ["child"]
+
+
+async def test_super_composes_when_you_want_both():
+    class Base(Canary):
+        @start
+        async def go(self) -> None:
+            log.append("base")
+
+    class Child(Base):
+        @start
+        async def go(self) -> None:
+            await super().go()
+            log.append("child")
+
+    async with Child():
+        pass
+    assert log == ["base", "child"]
+
+
+async def test_lifecycle_methods_themselves_can_be_overridden():
+    """本项目的 ``TelemetryDaemon.start`` 正是这个形状。"""
+
+    class Traced(Canary):
+        async def start(self) -> None:
+            log.append("before")
+            await super().start()
+            log.append("after")
+
+    async with Traced():
+        pass
+    assert log == ["before", "after"]
+
+
+# --- 失败与回收 ---------------------------------------------------------
 
 
 async def test_a_failed_start_releases_everything_it_had_acquired():
     """已启动的单元按逆序回收，**含失败单元自身**，原异常原样抛出。
 
-    这条对本项目是硬需求：``SupervisedTasks`` / ``HttpSampleSource`` /
-    ``WebhookAlertSink`` 都在 ``@on_start`` 里拿资源。0.9.2 里任何一个后启动的
-    单元失败，它们的 ``@on_stop`` 永远不跑——任务继续跑、HTTP 连接不关。
+    这条对本项目是硬需求：``SupervisedTasks`` / ``SampleSource`` / ``LoggingAlertSink``
+    都在 ``@start`` 里拿资源。
     """
-    app = Canary(HalfStarted)
-    await app.init()
+
+    class Acquires(Canary):
+        @start
+        async def s(self) -> None:
+            log.append("Acquires.start")
+
+        @stop
+        async def t(self) -> None:
+            log.append("Acquires.stop")
+
+    class HalfStarted(Canary):
+        acquires = dep(Acquires)
+
+        @start
+        async def s(self) -> None:
+            log.append("HalfStarted.start")
+            raise RuntimeError("启动失败")
+
+        @stop
+        async def t(self) -> None:
+            # 失败单元自己也在台账上，所以这个钩子会跑——它必须容忍
+            # 「@start 只跑了一半」的自己。
+            log.append("HalfStarted.stop")
+
+    unit = HalfStarted()
+    await unit.init()
     with pytest.raises(RuntimeError, match="启动失败"):
-        await app.start()
+        await unit.start()
+    await unit.stop()
 
     assert log == [
         "Acquires.start",
@@ -78,431 +280,292 @@ async def test_a_failed_start_releases_everything_it_had_acquired():
         "HalfStarted.stop",  # 失败的那个先回收
         "Acquires.stop",
     ]
-    assert app.state is LifecycleState.FAILED
 
 
-async def test_stop_after_a_failed_start_is_legal_and_idempotent():
-    """0.9.2 里 ``FAILED`` 拒绝 ``stop()``，连手动清理都不行。"""
-    app = Canary(HalfStarted)
-    await app.init()
-    with pytest.raises(RuntimeError):
-        await app.start()
+async def test_async_with_rolls_back_on_a_failed_start():
+    class Acquires(Canary):
+        @start
+        async def s(self) -> None:
+            log.append("acquire")
 
-    await app.stop()  # 不再抛 LifecycleError
-    await app.stop()  # 幂等
-    # 回收只做一次：台账已清空，不会重复执行 @on_stop
-    assert log.count("Acquires.stop") == 1
-    assert app.state is LifecycleState.FAILED
+        @stop
+        async def t(self) -> None:
+            log.append("release")
+
+    class Fails(Canary):
+        acquires = dep(Acquires)
+
+        @start
+        async def s(self) -> None:
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with Fails():
+            pass
+    assert log == ["acquire", "release"]
+
+
+async def test_stop_is_idempotent_and_reclaims_only_once():
+    class Unit(Canary):
+        @stop
+        async def t(self) -> None:
+            log.append("stop")
+
+    unit = Unit()
+    async with unit:
+        pass
+    await unit.stop()
+    await unit.stop()
+    assert log == ["stop"]
+
+
+async def test_stop_before_start_is_a_no_op():
+    """从未启动过的图没有台账，回收是空操作——不会凭空跑 ``@stop``。"""
+
+    class Unit(Canary):
+        @init
+        def prepare(self) -> None:
+            log.append("init")
+
+        @stop
+        async def release(self) -> None:
+            log.append("stop")
+
+    fresh = Unit()
+    await fresh.stop()
+    assert log == []
+
+    inited = Unit()
+    await inited.init()
+    await inited.stop()
+    assert log == ["init"], "@init 没进 start 台账，所以没有对应的回收步骤"
+
+
+async def test_a_failing_stop_hook_no_longer_strands_the_ones_below_it():
+    """最底层的连接池 / 后台任务照样被回收，异常合并成 ExceptionGroup。"""
+
+    class Innermost(Canary):
+        @stop
+        async def t(self) -> None:
+            log.append("Innermost.stop")
+
+    class BadStop(Canary):
+        innermost = dep(Innermost)
+
+        @stop
+        async def t(self) -> None:
+            log.append("BadStop.stop")
+            raise RuntimeError("关停失败")
+
+    class Outermost(Canary):
+        bad_stop = dep(BadStop)
+
+        @stop
+        async def t(self) -> None:
+            log.append("Outermost.stop")
+
+    unit = Outermost()
+    await unit.init()
+    await unit.start()
+
+    with pytest.raises(ExceptionGroup) as caught:
+        await unit.stop()
+
+    assert log == ["Outermost.stop", "BadStop.stop", "Innermost.stop"]
+    assert [type(e) for e in caught.value.exceptions] == [RuntimeError]
+    # 异常带上了出处，否则 ExceptionGroup 里认不出是谁抛的
+    assert any("BadStop" in n for n in getattr(caught.value.exceptions[0], "__notes__", []))
+
+
+async def test_stop_collects_every_failure_not_just_the_first():
+    class BadA(Canary):
+        @stop
+        async def t(self) -> None:
+            raise RuntimeError("A")
+
+    class BadB(Canary):
+        bad_a = dep(BadA)
+
+        @stop
+        async def t(self) -> None:
+            raise RuntimeError("B")
+
+    unit = BadB()
+    await unit.init()
+    await unit.start()
+    with pytest.raises(ExceptionGroup) as caught:
+        await unit.stop()
+    assert {str(e) for e in caught.value.exceptions} == {"A", "B"}
 
 
 async def test_a_failure_during_rollback_rides_along_as_a_note():
     """回收自身失败不改变异常类型，也不吞掉原因——附成 note。"""
 
-    @cocoa
-    class BadCleanup:
-        @on_stop
-        async def stop(self) -> None:
+    class BadCleanup(Canary):
+        @stop
+        async def t(self) -> None:
             raise RuntimeError("回收也失败了")
 
-    @cocoa(deps=[BadCleanup])
-    class Fails:
-        bad_cleanup: BadCleanup
+    class Fails(Canary):
+        bad_cleanup = dep(BadCleanup)
 
-        @on_start
-        async def start(self) -> None:
+        @start
+        async def s(self) -> None:
             raise ValueError("原始失败")
 
-    app = Canary(Fails)
-    await app.init()
     with pytest.raises(ValueError, match="原始失败") as caught:
-        await app.start()
+        async with Fails():
+            pass
 
     notes = getattr(caught.value, "__notes__", [])
     assert any("回收也失败了" in note for note in notes), notes
 
 
 async def test_an_init_failure_leaves_nothing_to_reclaim():
-    """``@on_init`` 阶段失败时还没有任何单元进过 ``@on_start``。"""
-
-    @cocoa
-    class BadInit:
-        @on_init
+    class BadInit(Canary):
+        @init
         async def boom(self) -> None:
             raise RuntimeError("init 失败")
 
-        @on_stop
-        async def stop(self) -> None:
+        @stop
+        async def t(self) -> None:
             log.append("BadInit.stop")
 
-    app = Canary(BadInit)
+    unit = BadInit()
     with pytest.raises(RuntimeError, match="init 失败"):
-        await app.init()
-    assert app.state is LifecycleState.FAILED
-    await app.stop()
+        await unit.init()
+    await unit.stop()
     assert log == []
 
 
-# --- #014：一个停止钩子抛异常不再中断整轮关停 ---------------------------
+# --- 替换：没有 provide=，但作用域可以预登记 -------------------------------
 
 
-@cocoa
-class Innermost:
-    @on_stop
-    async def stop(self) -> None:
-        log.append("Innermost.stop")
+async def test_the_substitution_seam_is_scope_pre_registration():
+    """本项目整套管线测试靠这条缝把 ``Clock`` 换成手动时钟。
 
-
-@cocoa(deps=[Innermost])
-class BadStop:
-    innermost: Innermost
-
-    @on_stop
-    async def stop(self) -> None:
-        log.append("BadStop.stop")
-        raise RuntimeError("关停失败")
-
-
-@cocoa(deps=[BadStop])
-class Outermost:
-    bad_stop: BadStop
-
-    @on_stop
-    async def stop(self) -> None:
-        log.append("Outermost.stop")
-
-
-async def test_a_failing_stop_hook_no_longer_strands_the_ones_below_it():
-    """最底层的连接池 / 后台任务照样被回收，异常合并成 ExceptionGroup。"""
-    app = Canary(Outermost)
-    await app.init()
-    await app.start()
-
-    with pytest.raises(ExceptionGroup) as caught:
-        await app.stop()
-
-    assert log == ["Outermost.stop", "BadStop.stop", "Innermost.stop"]
-    assert [type(e) for e in caught.value.exceptions] == [RuntimeError]
-    assert "关停失败" in str(caught.value.exceptions[0])
-    # 异常带上了出处，否则 ExceptionGroup 里认不出是谁抛的
-    assert any("BadStop" in n for n in getattr(caught.value.exceptions[0], "__notes__", []))
-    assert app.state is LifecycleState.FAILED
-
-
-async def test_stop_collects_every_failure_not_just_the_first():
-    @cocoa
-    class BadA:
-        @on_stop
-        async def stop(self) -> None:
-            raise RuntimeError("A")
-
-    @cocoa(deps=[BadA])
-    class BadB:
-        bad_a: BadA
-
-        @on_stop
-        async def stop(self) -> None:
-            raise RuntimeError("B")
-
-    app = Canary(BadB)
-    await app.init()
-    await app.start()
-    with pytest.raises(ExceptionGroup) as caught:
-        await app.stop()
-    assert {str(e) for e in caught.value.exceptions} == {"A", "B"}
-
-
-# --- 替换入口没有了：测试还能怎么写 ----------------------------------------
-
-
-async def test_the_substitution_entry_is_gone():
-    """``Canary(provide=...)`` 被删——``Canary`` 只收根。
-
-    理由（提交信息里写得很清楚）：单元"从哪来"只该有一个答案，而 ``provide`` 与
-    "必须能无参构造"这条规则一直在互咬（旧 #024）。代价是整图跑假实现的能力没有了。
+    和 0.9.x 的 ``setattr`` 缝相比，真单元这次**根本不会被构造**。
     """
+    built: list[str] = []
 
-    @cocoa
-    class Unit:
-        pass
+    class Expensive(Canary):
+        def __init__(self) -> None:
+            built.append("real")
 
-    with pytest.raises(TypeError, match="unexpected keyword argument"):
-        Canary(Unit, provide={Unit: object()})  # type: ignore[call-arg]
-
-
-async def test_the_seam_that_replaced_it_is_setattr_between_init_and_start():
-    """注入提前到 ``init()`` 之后，``init()`` 与 ``start()`` 之间就是替换窗口。
-
-    本项目的整套管线测试靠这个窗口把 ``Clock`` 换成手动时钟
-    （``telemetry/testing.py::swap_clock``）——一次 ``sleep`` 都不需要。
-    但这条缝有两个框架不管的地方，都钉在下面。
-    """
-
-    @cocoa
-    class RealSource:
-        async def read(self) -> str:
-            return "real"
-
-    @cocoa(deps=[RealSource])
-    class Consumer:
-        real_source: RealSource
-
-    class FakeSource:
-        opened = False
-
-        @on_start
-        async def open(self) -> None:  # 不会被执行：它不在图上
-            self.opened = True
-
-        async def read(self) -> str:
-            return "fake"
-
-    fake = FakeSource()
-    app = Canary(Consumer)
-    await app.init()
-    app[Consumer].real_source = fake  # type: ignore[assignment]
-    await app.start()
-
-    assert await app[Consumer].real_source.read() == "fake"
-    # 1. 替身的生命周期钩子不跑——持有资源的替身要自己开关。
-    assert not fake.opened
-    # 2. 运行时不知道换过：canary[RealSource] 仍然是真的那个，真的那个也照常启动。
-    assert app[RealSource] is not fake
-    await app.stop()
-
-
-async def test_the_real_unit_is_still_constructed_and_started():
-    """替换发生在图建好之后，所以被替掉的那棵子树照样实例化、照样启动。
-
-    ``provide`` 从前是在**建图**时就跳过它们的（"替掉数据库之后不该还去连数据库"）。
-    现在做不到：真单元的 ``@on_start`` 会先跑一遍。对本项目无害（``Clock`` 很轻），
-    但换成"真的会去连数据库的仓储"就不是无害的了。
-    """
-
-    started: list[str] = []
-
-    @cocoa
-    class Expensive:
-        @on_start
+        @start
         async def connect(self) -> None:
-            started.append("Expensive")
+            built.append("connected")
 
-    @cocoa(deps=[Expensive])
-    class Repo:
-        expensive: Expensive
-
-    @cocoa(deps=[Repo])
-    class Service:
-        repo: Repo
-
-    app = Canary(Service)
-    await app.init()
-    app[Service].repo = object()  # type: ignore[assignment]
-    await app.start()
-
-    assert Expensive in app.order
-    assert started == ["Expensive"], "换掉仓储也拦不住它的依赖去连接"
-    await app.stop()
-
-
-async def test_dependencies_are_injected_before_on_init_runs():
-    """注入提前到了 ``init()``：``@on_init`` 现在看得见自己的依赖。
-
-    0.9.3 里注入发生在 ``start()``，``@on_init`` 读依赖必然 ``AttributeError``；
-    文档（docs/zh/cocoa.md、dependency-injection.md）至今仍写着 start 阶段注入。
-    """
-
-    @cocoa
-    class Dep:
-        value = 7
-
-    seen: list[int] = []
-
-    @cocoa(deps=[Dep])
-    class Uses:
-        dep: Dep
-
-        @on_init
-        def read(self) -> None:
-            seen.append(self.dep.value)
-
-    await Canary(Uses).init()
-    assert seen == [7]
-
-
-# --- STILL BROKEN --------------------------------------------------------
-
-
-async def test_stop_before_start_reports_success_instead_of_refusing():
-    """``stop()`` 在 NEW / INITIALIZED 上静默成功，文档说它该抛 LifecycleError。
-
-    守护进程的形态下这条最刺眼：``init()`` 跑过 ``@on_init``（本项目在那里建
-    调度器作业表），随后 ``stop()`` 报告 STOPPED，却一个 ``@on_stop`` 都不跑。
-    "已停止"因此不再等于"已回收"——运维看状态机做决定时会被误导。
-    见 doc/bug/023-stop-before-start-reports-stopped-without-reclaiming.md
-    """
-
-    @cocoa
-    class Unit:
-        @on_init
-        def prepare(self) -> None:
-            log.append("Unit.init")
-
-        @on_stop
-        async def release(self) -> None:
-            log.append("Unit.stop")
-
-    fresh = Canary(Unit)
-    await fresh.stop()
-    assert fresh.state is LifecycleState.STOPPED, "文档承诺的是 LifecycleError"
-
-    inited = Canary(Unit)
-    await inited.init()
-    await inited.stop()
-    assert inited.state is LifecycleState.STOPPED
-    assert log == ["Unit.init"], "报告 STOPPED，但 @on_init 拿到的东西没人回收"
-
-
-async def test_a_unit_that_needs_constructor_arguments_is_told_where_to_put_them():
-    """旧 #024 的解法：删掉另一条路，错误信息因此只说得出一条出路。
-
-    从前 ``ConstructionError`` 指向 ``provide=``、而 ``provide=`` 又拒收任何声明了
-    ``deps`` 的实例，两条建议互相排斥。现在只剩"把构造参数变成依赖，值从协作者那里读，
-    读取动作放进 ``@on_init`` / ``@on_start``"——本项目的 ``Database``、
-    ``EmbeddingModel``、``SampleSource`` 全是这个形状。
-    """
-
-    @cocoa
-    class Settings:
-        dsn = "postgres://x"
-
-    @cocoa(deps=[Settings])
-    class Engine:
-        settings: Settings
-
-        def __init__(self, pool_size: int) -> None:
-            self.pool_size = pool_size
-
-    @cocoa(deps=[Engine])
-    class Service:
-        engine: Engine
-
-    with pytest.raises(ConstructionError) as caught:
-        await Canary(Service).init()
-    message = str(caught.value)
-    assert "provide" not in message, "另一条路已经不存在，就不该再出现在建议里"
-    assert "@on_init" in message or "@on_start" in message
-
-
-async def test_the_slow_callback_probe_now_covers_the_startup_step(caplog):
-    """#025 修好了：探针打开后让出一次，启动期的阻塞终于抓得到。
-
-    原因很具体——asyncio 在回调**开始执行之前**就读了 ``loop._debug``，而探针是在
-    ``init()`` 里、也就是那个回调执行到一半时才打开的。常规守护进程写法
-    （``asyncio.run(main())`` + ``async with Canary(...)``，中间没有真正的让出）
-    因此整段启动都测不到——本项目的 ``main.py`` 正是这个形状。
-    """
-    import os
-    import time
-
-    @cocoa
-    class BlockingStart:
-        @on_start
-        async def stall(self) -> None:
-            time.sleep(0.2)
-
-    async def whole_startup_in_one_step() -> None:
-        async with Canary(BlockingStart):
+    class Fake(Expensive):
+        def __init__(self) -> None:  # 故意不调 super()
             pass
 
-    os.environ["CANARY_SLOW_CALLBACK_SECONDS"] = "0.05"
-    try:
-        # 独立的 task：慢回调的 WARNING 是在一个 step **结束之后**才写的。
-        with caplog.at_level(logging.WARNING, logger="asyncio"):
-            await asyncio.create_task(whole_startup_in_one_step())
-    finally:
-        del os.environ["CANARY_SLOW_CALLBACK_SECONDS"]
+        @start
+        async def connect(self) -> None:  # 覆盖掉真实现的钩子
+            built.append("fake connected")
 
-    assert [r for r in caplog.records if "took" in r.getMessage()], "启动期的阻塞应当被抓到"
+    class Service(Canary):
+        expensive = dep(Expensive)
+
+    service = Service()
+    scope = scope_of(service)
+    fake = Fake()
+    scope.adopt(fake)
+    scope.instances[Expensive] = fake
+
+    async with service:
+        assert service.expensive is fake
+    assert built == ["fake connected"], "真单元既没被构造，也没被启动"
 
 
-async def test_no_scheduling_or_task_facility_still():
+async def test_a_seeded_substitute_is_reclaimed_like_any_other_unit():
+    """替身是图上的一等公民：进台账、跑自己的钩子、被 ``stop()`` 回收。"""
+
+    class Real(Canary):
+        pass
+
+    class Fake(Real):
+        @stop
+        async def t(self) -> None:
+            log.append("fake.stop")
+
+    class Service(Canary):
+        real = dep(Real)
+
+    service = Service()
+    scope = scope_of(service)
+    fake = Fake()
+    scope.adopt(fake)
+    scope.instances[Real] = fake
+
+    async with service:
+        pass
+    assert log == ["fake.stop"]
+
+
+# --- 框架仍然不提供的东西 -------------------------------------------------
+
+
+async def test_there_is_still_no_scheduler_or_task_facility():
     """本项目仍然要自带 ``SupervisedTasks`` 与 ``Scheduler``。
 
-    0.9.3 给了 web 侧的 ``BackgroundTask``（挂在响应上），但那是 Starlette 的，
-    且只在请求路径上；纯 core 的守护进程形态依然什么都没有。
-    见 doc/bug/010-no-background-tasks.md
+    0.10.0 的核心只做两件事：依赖注入与生命周期。这不是缺陷，是范围——但用它写守护
+    进程的人都要自己补这两块，所以记在这里。
     """
     public = {name for name in vars(Canary) if not name.startswith("_")}
-    assert public == {"state", "order", "instances", "init", "start", "stop"}
+    assert public == {"init", "start", "stop"}
     assert not any(k in name for name in public for k in ("task", "sched", "timer", "job"))
 
 
-async def test_multi_root_still_has_no_after_all_position():
-    """多根编排时没有单元最后启动——0.9.3 明确了这一点，但没有补钩子。
+async def test_there_is_no_after_all_hook_out_of_the_box():
+    """"全图起来之后"没有内建位置——但加一个阶段就有了，代价是三行。
 
-    本项目因此保持单根：``TelemetryDaemon.launch`` 就是 after-all。
-    见 doc/bug/013-startup-order-guarantees-undocumented.md
+    这正是 ``telemetry/phases.py`` 的全部内容。0.9.x 里同样的需求只能靠"根排在拓扑序
+    最后"这条未文档化的性质。
     """
+    launch = Phase("launch", after=start)
 
-    @cocoa
-    class Shared:
+    class Dependency(Canary):
+        @launch
+        async def on_launch(self) -> None:
+            log.append("dep.launch")
+
+    class Root(Canary):
+        dependency = dep(Dependency)
+
+        @start
+        async def s(self) -> None:
+            log.append("root.start")
+
+    root = Root()
+    async with root:
+        assert log == ["root.start"], "框架不会自己推进第四个阶段"
+        await advance(root, launch)
+    assert log == ["root.start", "dep.launch"]
+
+
+async def test_concurrent_dependencies_advance_together():
+    """互不依赖的依赖同时推进——0.9.x 要靠 ``start_concurrency=`` 配置，现在是默认。"""
+    order: list[str] = []
+
+    class Slow(Canary):
+        @start
+        async def s(self) -> None:
+            order.append("slow.enter")
+            await asyncio.sleep(0.02)
+            order.append("slow.exit")
+
+    class Quick(Canary):
+        @start
+        async def s(self) -> None:
+            order.append("quick.enter")
+            order.append("quick.exit")
+
+    class Root(Canary):
+        slow = dep(Slow)
+        quick = dep(Quick)
+
+    async with Root():
         pass
-
-    @cocoa(deps=[Shared])
-    class RootA:
-        shared: Shared
-
-    @cocoa(deps=[Shared])
-    class RootB:
-        shared: Shared
-
-    app = Canary(RootA, RootB)
-    await app.init()
-    await app.start()
-    assert app[RootA].shared is app[RootB].shared
-    assert app.order[0] is Shared
-    assert app.order[-1] in (RootA, RootB)  # 谁最后是排序的偶然，不是承诺
-    await app.stop()
-
-
-# --- 框架做对的部分（回归保护） -------------------------------------------
-
-
-async def test_async_context_manager_drives_init_start_stop():
-    app = Canary(Innermost)
-    async with app as started:
-        assert started.state is LifecycleState.STARTED
-    assert app.state is LifecycleState.STOPPED
-    assert log == ["Innermost.stop"]
-
-
-async def test_a_transient_state_still_refuses_stop():
-    """并发误用仍然要响——幂等只对终态成立。"""
-    app = Canary(Innermost)
-    await app.init()
-    app._state = LifecycleState.STARTING  # 模拟并发调用者看到的中间态
-    with pytest.raises(LifecycleError, match="illegal transition|illegal while"):
-        await app.stop()
-
-
-async def test_the_assembly_summary_names_order_and_deps(caplog):
-    """``canary.runtime`` 开到 DEBUG 时，装配结果一次性说清楚。"""
-
-    @cocoa
-    class Dep:
-        pass
-
-    @cocoa(deps=[Dep])
-    class App:
-        dep: Dep
-
-    with caplog.at_level(logging.DEBUG, logger="canary.runtime"):
-        app = Canary(App)
-        await app.init()
-        await app.start()
-        await app.stop()
-
-    summary = "\n".join(r.getMessage() for r in caplog.records)
-    assert "start order" in summary
-    assert "Dep" in summary
-    assert "App" in summary
+    # quick 在 slow 还没结束时就跑完了——两条分支是并发推进的
+    assert order.index("quick.exit") < order.index("slow.exit")

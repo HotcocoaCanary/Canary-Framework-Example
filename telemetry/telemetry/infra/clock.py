@@ -1,22 +1,21 @@
-"""Time source — the real one, and the hand-advanced one tests substitute for it.
+"""Time source — the real one, and the hand-advanced one tests put in its place.
 
-最终版的框架没有替换入口，所以这条缝由测试自己搭：``telemetry/testing.py::swap_clock``
-在 ``init()`` 与 ``start()`` 之间把注入好的 ``Clock`` 换成 ``ManualClock``——注入已经
-发生、``@on_start`` 还没跑，那一刻是唯一的窗口。
+``ManualClock`` 继承 ``Clock``，因此它本身也是一个单元。测试把它**预先登记**进作用域
+（``telemetry.testing.seed``），``dep(Clock)`` 于是取回它，真时钟连构造都不会发生——
+0.9.x 的替换缝做不到这一点，那时真单元照样实例化、照样跑 ``@on_start``。
 
-``ManualClock`` 故意不是 ``@cocoa``：替身不必是单元。它继承 ``Clock`` 只是为了让类型
-检查器在声明 ``Clock`` 的地方接受它。
+继承带来一个后果：子类同时继承父类的钩子。``Clock`` 目前没有钩子；将来若加了，
+``ManualClock`` 覆盖同名方法即可挡掉——0.10.0 的钩子按属性名解析，覆盖就是覆盖。
 """
 
 from __future__ import annotations
 
 import time
 
-from canary_framework import cocoa
+from canary_framework import Canary
 
 
-@cocoa
-class Clock:
+class Clock(Canary):
     """Wall-clock time."""
 
     def now(self) -> float:

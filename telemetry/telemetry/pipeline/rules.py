@@ -12,25 +12,23 @@ Three rules, in the order a human would check them:
 
 from __future__ import annotations
 
+from canary_framework import Canary, dep
+
 from telemetry.domain.models import Alert, AlertKind, Severity, WindowStat
 from telemetry.infra.clock import Clock
+from telemetry.settings import AppConfig
 from telemetry.store.device_registry import DeviceRegistry
 from telemetry.store.metric_store import MetricStore
-from canary_framework import cocoa
-from telemetry.settings import AppConfig
 
 
-@cocoa(deps=[AppConfig, Clock, DeviceRegistry, MetricStore])
-class RuleEngine:
-    app_config: AppConfig
-    clock: Clock
-    device_registry: DeviceRegistry
-    metric_store: MetricStore
-
-    _previous: dict[tuple[str, str], float]
+class RuleEngine(Canary):
+    config = dep(AppConfig)
+    clock = dep(Clock)
+    devices = dep(DeviceRegistry)
+    store = dep(MetricStore)
 
     def __init__(self) -> None:
-        self._previous = {}
+        self._previous: dict[tuple[str, str], float] = {}
 
     def evaluate(self, stats: list[WindowStat]) -> list[Alert]:
         now = self.clock.now()
@@ -48,9 +46,9 @@ class RuleEngine:
     # -- 规则 1：离线 ---------------------------------------------------
     def _offline_alerts(self, now: float) -> list[Alert]:
         alerts = []
-        for device in self.device_registry.enabled():
-            deadline = device.offline_after_seconds or self.app_config.offline_after_seconds
-            last = self.metric_store.last_seen(device.id)
+        for device in self.devices.enabled():
+            deadline = device.offline_after_seconds or self.config.offline_after_seconds
+            last = self.store.last_seen(device.id)
             if last is None or now - last <= deadline:
                 continue
             alerts.append(
@@ -68,7 +66,7 @@ class RuleEngine:
 
     # -- 规则 2：阈值 ---------------------------------------------------
     def _threshold_alerts(self, stat: WindowStat, now: float) -> list[Alert]:
-        device = self.device_registry.get(stat.device_id)
+        device = self.devices.get(stat.device_id)
         threshold = device.thresholds.get(stat.metric) if device else None
         if threshold is None:
             return []
@@ -97,9 +95,9 @@ class RuleEngine:
         if previous is None or previous == 0:
             return []
         ratio = abs(stat.avg - previous) / abs(previous)
-        if ratio < self.app_config.rate_change_ratio:
+        if ratio < self.config.rate_change_ratio:
             return []
-        device = self.device_registry.get(stat.device_id)
+        device = self.devices.get(stat.device_id)
         direction = "上升" if stat.avg > previous else "下降"
         return [
             Alert(
