@@ -1,11 +1,11 @@
 """Time source — the real one, and the hand-advanced one tests put in its place.
 
-``ManualClock`` 继承 ``Clock``，因此它本身也是一个单元。测试把它**预先登记**进作用域
-（``telemetry.testing.seed``），``dep(Clock)`` 于是取回它，真时钟连构造都不会发生——
+``ManualClock`` 继承 ``Clock``，因此它本身也是一个单元。测试用 ``Scope.provide`` 把它
+登记进作用域（见 ``telemetry.testing``），``dep(Clock)`` 于是取回它，真时钟连构造都不会发生——
 0.9.x 的替换缝做不到这一点，那时真单元照样实例化、照样跑 ``@on_start``。
 
 继承带来一个后果：子类同时继承父类的钩子。``Clock`` 目前没有钩子；将来若加了，
-``ManualClock`` 覆盖同名方法即可挡掉——0.10.0 的钩子按属性名解析，覆盖就是覆盖。
+``ManualClock`` 覆盖同名方法即可挡掉——钩子按属性名解析，覆盖就是覆盖。
 """
 
 from __future__ import annotations

@@ -98,7 +98,7 @@ def test_dependencies_start_before_their_dependents():
         root = LibraryApi()
         await root.init()
         # 台账记录的就是进入顺序
-        order.extend(type(u) for u in scope_of(root).entered["init"])
+        order.extend(type(u) for u in scope_of(root).entered["init"].values())
 
     asyncio.run(run())
     assert order.index(AppConfig) < order.index(Database)

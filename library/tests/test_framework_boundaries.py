@@ -24,7 +24,7 @@ from app.api import create_app
 from app.common.errors import ConflictError, NotFoundError, ValidationError
 from app.composition import LibraryApi
 from app.infra.db import Database
-from app.testing import make_book, make_reader, seed, unit
+from app.testing import make_book, make_reader, unit
 from config import AppConfig
 
 # --- 两层生命周期的对接 -----------------------------------------------------
@@ -40,7 +40,7 @@ def test_lifespan_starts_and_stops_the_whole_graph():
         assert scope_of(root).entered["start"], "start 台账上记着每个已启动的单元"
 
     # 回收按台账逆序进行，完成后台账被排空——这是"整张图确实回收过"的证据
-    assert scope_of(root).entered["start"] == []
+    assert not scope_of(root).entered["start"]
 
 
 def test_a_startup_failure_prevents_the_app_from_serving():
@@ -232,15 +232,15 @@ def test_constraints_in_the_schema_are_enforced(client):
     assert response.status_code == 422
 
 
-# --- 替换缝：没有 provide=，但作用域可以预登记 -------------------------------
+# --- 替换：Scope.provide ----------------------------------------------------
 
 
-def test_a_seeded_config_replaces_the_real_one_before_anything_starts():
+def test_a_provided_config_replaces_the_real_one_before_anything_starts():
     """整张图跑在测试给的配置上，真配置连构造都不会发生。"""
 
     async def run() -> str:
         root = LibraryApi()
-        seed(scope_of(root), AppConfig, AppConfig(embedding_dim=64, chunk_size=99))
+        scope_of(root).provide(AppConfig, AppConfig(embedding_dim=64, chunk_size=99))
         async with root:
             assert unit(root, AppConfig).embedding_dim == 64
             assert unit(root, Database).config.chunk_size == 99
@@ -249,7 +249,7 @@ def test_a_seeded_config_replaces_the_real_one_before_anything_starts():
     assert asyncio.run(run()) == "sqlite"
 
 
-def test_a_seeded_substitute_keeps_the_real_unit_from_being_constructed():
+def test_a_provided_substitute_keeps_the_real_unit_from_being_constructed():
     """0.9.x 的 ``setattr`` 缝做不到这点：被替掉的那棵子树照样实例化、照样启动。"""
     built: list[str] = []
 
@@ -274,7 +274,7 @@ def test_a_seeded_substitute_keeps_the_real_unit_from_being_constructed():
 
     async def run() -> None:
         service = Service()
-        seed(scope_of(service), Expensive, Fake())
+        scope_of(service).provide(Expensive, Fake())
         async with service:
             assert isinstance(service.expensive, Fake)
 

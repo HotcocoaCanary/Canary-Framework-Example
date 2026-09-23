@@ -1,13 +1,13 @@
 # 场景二：设备遥测采集与告警
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **0.10.0**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.0**
 写的**常驻守护进程**：周期采集设备指标 → 滚动窗口聚合 → 规则评估 → 告警去重投递。
 
 与 [场景一](../library/README.md) 的对照是刻意的：那里是请求驱动的 HTTP API，由 ASGI
 的 lifespan 驱动生命周期；这里没有 ASGI，进程用 `async with TelemetryDaemon()` 自己
 驱动，靠信号退出。框架的 `__aenter__` / `__aexit__` 正好覆盖这个用法。
 
-依赖里**只有核心**：0.10.0 的 `canary-framework` 是纯标准库、零第三方依赖，本项目
+依赖里**只有核心**：`canary-framework` 是纯标准库、零第三方依赖，本项目
 除了 `pydantic-settings` 与 `httpx` 之外不装任何 web 相关的包
 （`tests/test_lifecycle.py` 用子进程钉住了这条）。
 
@@ -52,7 +52,7 @@ telemetry/
 
 **第四个阶段解决了"全图起来之后"。** 调度器必须等所有单元注册完作业才能开循环，
 而 `@start` 给不了这个位置：推进沿依赖向下，依赖的 `@start` 一定早于依赖者，调度器
-作为被依赖方反而最先跑。0.10.0 的阶段是一等对象，三行就够：
+作为被依赖方反而最先跑。阶段是一等对象，三行就够：
 
 ```python
 launch = Phase("launch", after=start)     # phases.py
@@ -96,10 +96,9 @@ class TelemetryDaemon(Canary):
 
 ## 测试
 
-时间是被测试拥有的：全部管线测试一次 `sleep` 都不需要。做法是**作用域预登记**——
-`Scope.instances` 就是"类型 → 本次运行的唯一实例"那张表，而 `dep(...)` 读的正是它，
-所以在生命周期开始前把 `ManualClock` 放进去，整张图就跑在手动时钟上，真 `Clock`
-连构造都不会发生。六行，见 `telemetry/testing.py::seed`。
+时间是被测试拥有的：全部管线测试一次 `sleep` 都不需要。做法是在生命周期开始前
+`scope_of(daemon).provide(Clock, ManualClock())`，整张图就跑在手动时钟上，真 `Clock`
+连构造都不会发生。见 `telemetry/testing.py`。
 
 0.9.x 的 `setattr` 缝做不到这点：被替掉的那棵子树照样实例化、照样跑 `@on_start`
 ——换掉仓储也拦不住它的依赖去连数据库。
