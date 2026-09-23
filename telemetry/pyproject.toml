@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     # 场景二是纯核心：canary-framework 本身零第三方依赖，
     # 这里除了 pydantic-settings 与 httpx 之外不再需要任何 web 相关的包。
-    "canary-framework>=1.0.0,<2",
+    "canary-framework>=1.1.0,<2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
     "httpx>=0.28.0",

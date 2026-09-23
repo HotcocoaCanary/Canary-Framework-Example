@@ -158,9 +158,9 @@ async def test_launch_runs_after_every_start():
 
         async def start(self) -> None:
             await super().start()
-            from canary_framework import advance
+            from canary_framework import enter
 
-            await advance(self, launch)
+            await enter(self, launch)
 
     async with Root():
         pass
@@ -184,7 +184,7 @@ async def test_the_scheduler_only_spawns_loops_in_launch():
 
 async def test_a_phase_with_an_unmet_predecessor_refuses_to_run():
     """``after=start`` 是栅栏，不是注释：跳过 ``start()`` 直接推 ``launch`` 会抛错。"""
-    from canary_framework import advance
+    from canary_framework import enter
 
     class Unit(Canary):
         @launch
@@ -193,7 +193,7 @@ async def test_a_phase_with_an_unmet_predecessor_refuses_to_run():
     unit_ = Unit()
     await unit_.init()
     with pytest.raises(LifecycleError, match="@start"):
-        await advance(unit_, launch)
+        await enter(unit_, launch)
 
 
 async def test_start_before_init_is_refused():

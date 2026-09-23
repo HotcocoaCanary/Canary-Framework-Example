@@ -37,10 +37,10 @@ def test_lifespan_starts_and_stops_the_whole_graph():
         root = client.app.state.root
         assert unit(root, Database).engine is not None
         assert client.get("/api/health").status_code == 200
-        assert scope_of(root).entered["start"], "start 台账上记着每个已启动的单元"
+        assert scope_of(root).entered(start), "start 台账上记着每个已启动的单元"
 
     # 回收按台账逆序进行，完成后台账被排空——这是"整张图确实回收过"的证据
-    assert not scope_of(root).entered["start"]
+    assert not scope_of(root).entered(start)
 
 
 def test_a_startup_failure_prevents_the_app_from_serving():

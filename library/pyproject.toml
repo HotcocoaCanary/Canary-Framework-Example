@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "场景一：智能图书馆管理系统 —— 请求驱动的 HTTP API + RAG"
 requires-python = ">=3.12"
 dependencies = [
-    "canary-framework>=1.0.0,<2",
+    "canary-framework>=1.1.0,<2",
     "sqlmodel==0.0.42",
     "aiosqlite>=0.20.0",
     "asyncpg>=0.30.0",

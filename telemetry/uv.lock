@@ -26,11 +26,11 @@ wheels = [
 
 [[package]]
 name = "canary-framework"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b0/f0/0a8e443d5c9e863e78ce409c3404dd68632ff1e20fa48d5f1c8da2de17bf/canary_framework-1.0.0.tar.gz", hash = "sha256:769bf3cf3cbeb075a94859694b867f760966a8a0981273af1688c7a78e38b709", size = 79958, upload-time = "2026-09-23T06:17:35.752Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ea/11/802b88f397a48b01bafd8287f650d60cf1078a2a261f06c4524b42691249/canary_framework-1.1.0.tar.gz", hash = "sha256:05fa3872416d633770fbbd2177124377ca418dbb9decf96cab82eb847b459db5", size = 52136, upload-time = "2026-09-23T11:43:08.312Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/f1/1c5751e4a0828fd3ee48bef6902784f581508c4597ca5ebc321c43850eb7/canary_framework-1.0.0-py3-none-any.whl", hash = "sha256:a489a8f67d4b8b93e13446d1447f94af8dcb77b8ff60073d921d5caa94eb6f2a", size = 26579, upload-time = "2026-09-23T06:17:34.266Z" },
+    { url = "https://files.pythonhosted.org/packages/48/f8/c44efda88d54d94df830248f383845e7a91d0df9b7adf5da7608981632b8/canary_framework-1.1.0-py3-none-any.whl", hash = "sha256:0797b7a5cac7d7219ee787b05e12ed41076fabcb0e6b8569b4d7d50bf7429e82", size = 31997, upload-time = "2026-09-23T11:43:07.07Z" },
 ]
 
 [[package]]
@@ -52,7 +52,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "canary-framework", specifier = ">=1.0.0,<2" },
+    { name = "canary-framework", specifier = ">=1.1.0,<2" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
