@@ -1,0 +1,73 @@
+name: CI
+
+# 两个示例各是一个独立的 uv 工程，分别安装、检查与测试。
+# 另有一个每周任务：用框架 main 分支的最新代码跑一遍测试，框架的改动一旦破坏示例能提前发现。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"   # 每周一 03:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [library, telemetry]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          cache-dependency-glob: "${{ matrix.project }}/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint (ruff)
+        run: uvx ruff@0.15.15 check .
+
+      - name: Test
+        run: uv run pytest
+
+  framework-main:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [library, telemetry]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies with canary-framework from main
+        run: |
+          uv sync --locked
+          uv pip install "canary-framework @ git+https://github.com/HotcocoaCanary/Canary-Framework@main"
+          uv run --no-sync python -c "import canary_framework as c; print('canary-framework', c.__version__)"
+
+      - name: Test
+        run: uv run --no-sync pytest
