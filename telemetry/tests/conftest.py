@@ -3,7 +3,7 @@
 Nothing here sleeps.  场景二的全部意义是一个*时间*驱动的系统，而时间驱动的系统只有在
 测试拥有时钟时才可测。
 
-"拥有时钟"这件事在 0.10.0 里是把 ``ManualClock`` 预先登记进作用域，真 ``Clock`` 因此
+"拥有时钟"这件事是用 ``Scope.provide`` 把 ``ManualClock`` 登记进作用域，真 ``Clock`` 因此
 连构造都不会发生——见 ``telemetry/testing.py`` 的说明。
 """
 

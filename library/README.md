@@ -1,6 +1,6 @@
 # 场景一：智能图书馆管理系统
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **0.10.0**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.0**
 搭的图书馆管理系统：书目与馆藏、读者、借还流通与预约队列，外加一个基于 RAG 的
 智能馆员助手。
 
@@ -137,7 +137,9 @@ uv run pytest                                      # 101 passed
 uv run pytest tests/test_framework_boundaries.py   # 21 条：Canary ↔ FastAPI 接缝
 ```
 
-测试替换实现走的是**作用域预登记**——框架没有 `provide=` 之类的替换入口，但
-`Scope.instances` 本来就是"类型 → 本次运行的唯一实例"那张表，而 `dep(...)` 读的正是它。
-在生命周期开始之前把替身放进去，整张图拿到的就是替身，真单元连构造都不会发生。
-六行，见 `app/testing.py::seed`。
+测试替换实现用框架自带的 `Scope.provide`：在生命周期开始之前
+`scope_of(root).provide(AppConfig, AppConfig(...))`，整张图拿到的就是替身，真单元连构造
+都不会发生。见 `tests/test_framework_boundaries.py` 的「替换」一节。
+
+注意与 `app/wiring.py` 里的 `provide(Cls)` 区分：那是给 FastAPI handler 用的依赖函数，
+从已启动的图上**取**单元；`Scope.provide` 是在启动前往图上**放**替身。

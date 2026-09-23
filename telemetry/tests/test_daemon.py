@@ -15,19 +15,18 @@ from telemetry.infra.clock import Clock
 from telemetry.infra.scheduler import Scheduler
 from telemetry.infra.tasks import SupervisedTasks
 from telemetry.settings import AppConfig
-from telemetry.testing import seed, unit
+from telemetry.testing import unit
 
 
 async def _fast_daemon() -> TelemetryDaemon:
     """A daemon on a *real* clock but very short intervals.
 
     注意时钟：这几条要让调度器自己的循环跑起来，所以时间必须真的流逝——这里**不换**
-    时钟，只把间隔调小。配置照旧走预登记，因为作业注册发生在 ``@start``，
+    时钟，只把间隔调小。配置照旧用 ``provide`` 登记，因为作业注册发生在 ``@start``，
     那时配置必须已经是最终值。
     """
     daemon = TelemetryDaemon()
-    seed(
-        scope_of(daemon),
+    scope_of(daemon).provide(
         AppConfig,
         AppConfig(collect_interval_seconds=0.01, evaluate_interval_seconds=0.02),
     )

@@ -7,7 +7,7 @@ import asyncio
 from canary_framework import scope_of
 
 from app.module.rag.chunker import TextChunker
-from app.testing import failure, make_book, payload, seed
+from app.testing import failure, make_book, payload
 from config import AppConfig
 
 POLICY = (
@@ -28,7 +28,7 @@ def _chunker(**settings) -> TextChunker:
     ``AppConfig``，而后者由测试预先登记，于是切分参数完全由测试说了算。
     """
     chunker = TextChunker()
-    seed(scope_of(chunker), AppConfig, AppConfig(**settings))
+    scope_of(chunker).provide(AppConfig, AppConfig(**settings))
     asyncio.run(chunker.init())
     return chunker
 

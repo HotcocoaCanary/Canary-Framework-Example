@@ -3,30 +3,18 @@
 放在包里而不是 ``tests/conftest.py``，是为了两个场景都能有一个叫 ``tests/`` 的目录而
 不在 import 时撞车。
 
-其中 :func:`seed` 是 0.10.0 的替换缝。框架没有 ``provide=`` 之类的替换入口，但
-``Scope.instances`` 本来就是"类型 → 本次运行的唯一实例"那张表，而 ``dep(...)`` 读的
-正是它——所以在生命周期开始之前把替身放进去，整张图拿到的就是替身，真单元连构造都
-不会发生。
+替换单元用框架自带的 ``Scope.provide``：在生命周期开始之前
+``scope_of(root).provide(AppConfig, AppConfig(...))``，整张图拿到的就是替身，真单元
+连构造都不会发生；替身照常跑自己的钩子、推进自己声明的依赖、被 ``stop()`` 回收。
 """
 
 from __future__ import annotations
 
-from canary_framework import Canary, Scope, scope_of
-
-
-def seed[T: Canary](scope: Scope, cls: type[Canary], instance: T) -> T:
-    """Register *instance* as *scope*'s instance of *cls*, before the lifecycle starts.
-
-    ``adopt`` 把作用域写到替身身上（替身自己声明的依赖因此也解析得了），再按 *cls*
-    这个键登记一次——``adopt`` 用的键是 ``type(instance)``，而依赖声明的是 *cls*。
-    """
-    scope.adopt(instance)
-    scope.instances[cls] = instance
-    return instance
+from canary_framework import Canary, scope_of
 
 
 def unit[T: Canary](root: Canary, cls: type[T]) -> T:
-    """The scope's instance of *cls* —— 0.10.0 里 ``canary[Type]`` 的替代写法。"""
+    """The scope's instance of *cls* —— 0.9.x 里 ``canary[Type]`` 的替代写法。"""
     return scope_of(root).instances[cls]  # type: ignore[return-value]
 
 

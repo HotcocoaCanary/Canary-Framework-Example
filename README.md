@@ -1,7 +1,7 @@
 # canary-framework 多场景示例
 
 用**形态刻意不同**的两个真实项目分别压测
-[Canary Framework](https://pypi.org/project/canary-framework/) **0.10.0**，
+[Canary Framework](https://pypi.org/project/canary-framework/) **1.0**，
 收集单一场景看不到的框架能力与取舍。
 
 ```
@@ -24,6 +24,17 @@ telemetry 用合成波形 + 内存存储。接真实的 PostgreSQL/pgvector、LL
 都只需改各自的 `.env`。
 
 测试共 159 条：library 101 + telemetry 58。
+
+## 1.0 对示例的影响
+
+1.0 沿用 0.10 的核心，并开始遵循语义化版本，两个示例因此只依赖 `canary-framework>=1.0,<2`。
+对示例代码的改动只有两处：
+
+- **替换有了正式入口。** 两边测试里各自手写的 `seed()`（直接往 `Scope.instances` 里塞替身）
+  换成了框架自带的 `scope_of(root).provide(Cls, fake)`。行为一样——真单元不构造、替身走
+  完整生命周期——但替身自己声明的依赖也会推进，且类型不对时当场报错。
+- **台账以类型为键。** `scope.entered[phase]` 从列表变成 `dict[type, object]`，遍历单元
+  用 `.values()`。
 
 ## 0.10.0 之后，这两个示例长什么样
 
@@ -49,20 +60,19 @@ telemetry 用合成波形 + 内存存储。接真实的 PostgreSQL/pgvector、LL
 
 **取舍的代价**也要两边一起看才清楚。两个例子：
 
-*框架没有替换入口。* 图上的实例一律由框架无参构造，所以"用哪个实现"这件事回到单元
+*框架没有接口绑定。* 图上的实例一律由框架无参构造，所以"用哪个实现"这件事回到单元
 内部：[场景一](library/app/infra/ai.py)（本地还是远端模型）与
 [场景二](telemetry/telemetry/source/sample_source.py)（合成波形还是 HTTP 采集）
 长出了同一形状的配置分支。一边看像是接线风格，两边一起看才是框架的取舍。
 
-*但测试的替换缝变好了。* 0.10.0 里 `Scope.instances` 就是"类型 → 实例"那张表，而
-`dep(...)` 读的正是它——在生命周期开始前把替身放进去，整张图就拿到替身，**真单元连构造
-都不会发生**。0.9.x 的 `setattr` 缝做不到这点：被替掉的那棵子树照样实例化、照样启动。
-两个场景各有一个六行的 `seed()`（[库](library/app/testing.py)、
+*但测试的替换缝变好了。* 在生命周期开始前 `scope_of(root).provide(Cls, fake)`，整张图
+就拿到替身，**真单元连构造都不会发生**。0.9.x 的 `setattr` 缝做不到这点：被替掉的那棵
+子树照样实例化、照样启动。两个场景的测试辅助都用它（[库](library/app/testing.py)、
 [遥测](telemetry/telemetry/testing.py)）。
 
 *第四个阶段值不值。* 守护进程需要一个"全图都起来之后"的位置——调度器要等所有单元注册完
 作业才能开循环。`@start` 给不了：推进沿依赖向下，调度器作为被依赖方反而最先跑。0.9.x 里
-只能靠"根排在拓扑序最后"这条未文档化的性质去绕；0.10.0 里
+只能靠"根排在拓扑序最后"这条未文档化的性质去绕；现在
 [三行声明一个 `@launch` 阶段](telemetry/telemetry/phases.py)就解决了，`after=start`
 还顺带保证阶段不会被静默跳过。场景一完全用不到这个能力——它的"全图起来之后"由 ASGI
 lifespan 天然提供。

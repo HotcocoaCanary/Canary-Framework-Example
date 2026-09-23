@@ -438,10 +438,10 @@ async def test_an_init_failure_leaves_nothing_to_reclaim():
     assert log == []
 
 
-# --- 替换：没有 provide=，但作用域可以预登记 -------------------------------
+# --- 替换：Scope.provide ----------------------------------------------------
 
 
-async def test_the_substitution_seam_is_scope_pre_registration():
+async def test_the_substitution_seam_is_scope_provide():
     """本项目整套管线测试靠这条缝把 ``Clock`` 换成手动时钟。
 
     和 0.9.x 的 ``setattr`` 缝相比，真单元这次**根本不会被构造**。
@@ -468,17 +468,15 @@ async def test_the_substitution_seam_is_scope_pre_registration():
         expensive = dep(Expensive)
 
     service = Service()
-    scope = scope_of(service)
     fake = Fake()
-    scope.adopt(fake)
-    scope.instances[Expensive] = fake
+    scope_of(service).provide(Expensive, fake)
 
     async with service:
         assert service.expensive is fake
     assert built == ["fake connected"], "真单元既没被构造，也没被启动"
 
 
-async def test_a_seeded_substitute_is_reclaimed_like_any_other_unit():
+async def test_a_provided_substitute_is_reclaimed_like_any_other_unit():
     """替身是图上的一等公民：进台账、跑自己的钩子、被 ``stop()`` 回收。"""
 
     class Real(Canary):
@@ -493,10 +491,8 @@ async def test_a_seeded_substitute_is_reclaimed_like_any_other_unit():
         real = dep(Real)
 
     service = Service()
-    scope = scope_of(service)
     fake = Fake()
-    scope.adopt(fake)
-    scope.instances[Real] = fake
+    scope_of(service).provide(Real, fake)
 
     async with service:
         pass

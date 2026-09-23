@@ -1,4 +1,4 @@
-"""Lifecycle — what 0.10.0 guarantees for a long-running, non-ASGI process.
+"""Lifecycle — what the framework guarantees for a long-running, non-ASGI process.
 
 场景一从不碰这些：那里 FastAPI 的 lifespan 驱动 init/start/stop，启动失败直接打死进程。
 守护进程自己拥有生命周期，框架的生命周期语义因此变成承重墙。
