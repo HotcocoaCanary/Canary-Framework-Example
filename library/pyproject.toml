@@ -2,7 +2,7 @@
 name = "canary-library"
 version = "1.0.0"
 description = "场景一：智能图书馆管理系统 —— 请求驱动的 HTTP API + RAG"
-requires-python = ">=3.12, <3.13"
+requires-python = ">=3.12"
 dependencies = [
     "canary-framework>=1.0.0,<2",
     "sqlmodel==0.0.42",
