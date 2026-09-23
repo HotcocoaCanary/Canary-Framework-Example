@@ -1,7 +1,7 @@
 # canary-framework 多场景示例
 
 用**形态刻意不同**的两个真实项目分别压测
-[Canary Framework](https://pypi.org/project/canary-framework/) **1.0**，
+[Canary Framework](https://pypi.org/project/canary-framework/) **1.1**，
 收集单一场景看不到的框架能力与取舍。
 
 ```
@@ -24,6 +24,18 @@ telemetry 用合成波形 + 内存存储。接真实的 PostgreSQL/pgvector、LL
 都只需改各自的 `.env`。
 
 测试共 159 条：library 101 + telemetry 58。
+
+## 1.1 对示例的影响
+
+1.1 把引擎重建在显式依赖图上，两个示例依赖 `canary-framework>=1.1,<2`。对示例代码的改动
+只有两处，都来自引擎 API 的改名：
+
+- **`advance()` 改名为 `enter()`。** 场景二用它在整张图启动之后进入自定义的 `@launch` 阶段
+  （[daemon.py](telemetry/telemetry/daemon.py)）。
+- **`scope.entered[phase]` 改为 `scope.entered(phase)`**，以阶段对象为参数。
+
+1.1 的其他变化——`stop()` 成为单元的动作、失败的 `start()` 自行回收、环在任何钩子运行之前
+报告——不需要改示例代码，两边的测试原样通过。
 
 ## 1.0 对示例的影响
 

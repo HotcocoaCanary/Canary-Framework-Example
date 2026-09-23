@@ -1,6 +1,6 @@
 # 场景二：设备遥测采集与告警
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.0**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.1**
 写的**常驻守护进程**：周期采集设备指标 → 滚动窗口聚合 → 规则评估 → 告警去重投递。
 
 与 [场景一](../library/README.md) 的对照是刻意的：那里是请求驱动的 HTTP API，由 ASGI
@@ -66,7 +66,7 @@ launch = Phase("launch", after=start)     # phases.py
 class TelemetryDaemon(Canary):
     async def start(self) -> None:
         await super().start()             # 全图 @start
-        await advance(self, launch)       # 再广播 @launch
+        await enter(self, launch)         # 再广播 @launch
 ```
 
 0.9.x 没有这个能力，同样的需求只能靠"根排在拓扑序最后"这条未写进文档的性质去绕。

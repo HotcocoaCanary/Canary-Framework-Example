@@ -1,6 +1,6 @@
 # 场景一：智能图书馆管理系统
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.0**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.1**
 搭的图书馆管理系统：书目与馆藏、读者、借还流通与预约队列，外加一个基于 RAG 的
 智能馆员助手。
 

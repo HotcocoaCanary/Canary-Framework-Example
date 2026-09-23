@@ -20,9 +20,9 @@ from canary_framework import (
     DeclarationError,
     LifecycleError,
     Phase,
-    advance,
     dep,
     deps_of,
+    enter,
     init,
     scope_of,
     start,
@@ -182,7 +182,7 @@ async def test_a_fourth_phase_needs_no_registration():
 
     schema = Schema()
     await schema.init()
-    await advance(schema, migrate)
+    await enter(schema, migrate)
     assert log == ["migrated"]
 
 
@@ -536,7 +536,7 @@ async def test_there_is_no_after_all_hook_out_of_the_box():
     root = Root()
     async with root:
         assert log == ["root.start"], "框架不会自己推进第四个阶段"
-        await advance(root, launch)
+        await enter(root, launch)
     assert log == ["root.start", "dep.launch"]
 
 

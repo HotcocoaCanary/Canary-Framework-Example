@@ -10,7 +10,7 @@
 
     async def start(self) -> None:
         await super().start()        # 全图 @start
-        await advance(self, launch)  # 再广播 @launch
+        await enter(self, launch)  # 再广播 @launch
 
 这样 ``async with TelemetryDaemon()`` 和 ``daemon.start()`` 两种写法都自动带上
 ``@launch``，调用者不必记得多调一步。
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 
-from canary_framework import Canary, advance, dep, start
+from canary_framework import Canary, dep, enter, start
 
 from telemetry.domain.models import Alert
 from telemetry.infra.clock import Clock
@@ -100,7 +100,7 @@ class TelemetryDaemon(Canary):
         覆盖生命周期方法是 0.10.0 明确支持的写法：钩子按属性名解析，``super()`` 组合。
         """
         await super().start()
-        await advance(self, launch)
+        await enter(self, launch)
 
     @launch
     async def announce(self) -> None:

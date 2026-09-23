@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from canary_framework import deps_of, scope_of
+from canary_framework import deps_of, init, scope_of
 
 from app.composition import LibraryApi
 from app.infra.ai import ChatModel, EmbeddingModel
@@ -98,7 +98,7 @@ def test_dependencies_start_before_their_dependents():
         root = LibraryApi()
         await root.init()
         # 台账记录的就是进入顺序
-        order.extend(type(u) for u in scope_of(root).entered["init"].values())
+        order.extend(type(u) for u in scope_of(root).entered(init).values())
 
     asyncio.run(run())
     assert order.index(AppConfig) < order.index(Database)
