@@ -21,12 +21,15 @@ permissions:
 
 jobs:
   test:
+    # 3.12 这一组保持 "test (<project>)" 的名字：它们是 main ruleset 的必需检查
+    name: test (${{ matrix.project }}${{ matrix.python != '3.12' && format(', {0}', matrix.python) || '' }})
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         project: [library, telemetry]
+        python: ["3.12", "3.15"]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -39,7 +42,7 @@ jobs:
           cache-dependency-glob: "${{ matrix.project }}/uv.lock"
 
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked --python ${{ matrix.python }}
 
       - name: Lint (ruff)
         run: uvx ruff@0.15.15 check .
@@ -65,7 +68,7 @@ jobs:
 
       - name: Install dependencies with canary-framework from main
         run: |
-          uv sync --locked
+          uv sync --locked --python 3.12
           uv pip install "canary-framework @ git+https://github.com/HotcocoaCanary/Canary-Framework@main"
           uv run --no-sync python -c "import canary_framework as c; print('canary-framework', c.__version__)"
 
