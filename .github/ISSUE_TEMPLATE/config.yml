@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 框架使用问题 / Framework questions
+    url: https://github.com/HotcocoaCanary/Canary-Framework/discussions/categories/q-a
+    about: 关于 canary-framework 本身的问题请到主仓库 Discussions
+  - name: 🐛 框架缺陷 / Framework bugs
+    url: https://github.com/HotcocoaCanary/Canary-Framework/issues/new/choose
+    about: 框架本身的 bug 请提到主仓库
+  - name: 📖 文档 / Documentation
+    url: https://hotcocoacanary.github.io/Canary-Framework/
+    about: 查看框架文档

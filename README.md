@@ -76,3 +76,14 @@ cd telemetry && uv run pytest tests/test_framework_boundaries.py   # 25 条：�
 
 这些测试**钉住框架当前的行为**，既是回归保护，也是一份可执行的说明：
 每条都注明它对应框架的哪个决定、以及逼出了本项目的哪个设计。
+
+## 参与 / Community
+
+- 示例的问题与改进：[Issues](https://github.com/HotcocoaCanary/Canary-Framework-Example/issues) 与 PR，见 [CONTRIBUTING](CONTRIBUTING.md)
+- 框架的使用问题与提议：[主仓库 Discussions](https://github.com/HotcocoaCanary/Canary-Framework/discussions)
+- 框架文档：[hotcocoacanary.github.io/Canary-Framework](https://hotcocoacanary.github.io/Canary-Framework/)
+- 安全问题：见 [SECURITY](SECURITY.md)；行为准则：[CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
+
+## 许可证 / License
+
+Apache-2.0，见 [LICENSE](LICENSE)。

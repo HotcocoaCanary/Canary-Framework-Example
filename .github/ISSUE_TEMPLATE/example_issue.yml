@@ -1,0 +1,24 @@
+name: 🧩 示例问题 / Example issue
+description: 示例跑不起来、写法有误或与框架文档不一致 / An example fails, is wrong, or disagrees with the docs
+labels: [bug, needs-triage]
+body:
+  - type: dropdown
+    attributes:
+      label: 示例 / Example
+      options: [library, telemetry, 两者 / both]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 描述 / Description
+      description: 发生了什么，期望是什么 / What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 复现 / Steps to reproduce
+      render: bash
+  - type: input
+    attributes:
+      label: 版本 / Versions
+      placeholder: "canary-framework 1.0.0, Python 3.12, commit abc1234"
