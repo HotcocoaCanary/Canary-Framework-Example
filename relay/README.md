@@ -26,7 +26,7 @@
 
 ```bash
 uv sync
-uv run pytest                                   # 99 个测试（行为测试跑两遍）
+uv run pytest                                   # 100 个测试（行为测试跑两遍）
 
 uv run python main.py                           # canary 版（默认）：对外 :8020，管理 :9020
 uv run python main.py --stack fastapi           # 原生 FastAPI 版：对外 :8120，管理 :9120

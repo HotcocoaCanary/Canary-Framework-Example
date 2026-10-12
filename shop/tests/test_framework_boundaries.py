@@ -11,7 +11,7 @@ import asyncio
 
 import httpx
 import pytest
-from canary_framework import Canary, LifecycleError, dep, init, scope_of, start
+from canary_framework import Canary, LifecycleError, dep, init, scope_of, start, stop
 from canary_framework.test import running, unit
 from canary_framework.web.asgi import dispatch
 from canary_framework.web.asgi.server import Server
@@ -139,52 +139,120 @@ async def test_assigning_self_app_takes_over_from_the_dependencies() -> None:
             assert (await client.get("/v2/inventory")).status_code == 404  # 依赖了却没被服务
 
 
-# --- 【迁移时会咬人】老应用自己的 lifespan 不会被调用 ------------------------
+# --- 老应用自己的 lifespan：默认不跑，一个类参数打开 ----------------------
 
 
-async def test_the_server_never_sends_lifespan_to_the_application() -> None:
-    """**【迁移要注意】** 我们的 ``Server`` 不向应用发 lifespan 消息，所以老应用自己的
-    ``lifespan`` / ``on_event("startup")`` **一次都不会跑**。
+def legacy_with_lifespan(ran: list[str]):
+    """A FastAPI application that does its setup in its own lifespan.
 
-    "先只换服务器"这一步因此有个陷阱：老应用如果在 lifespan 里建连接池、热缓存、起后台
-    任务，换成由 ``Server`` 服务之后这些**悄悄地不发生了**，而接口照样能通——直到第一个
-    用到那个连接池的请求打进来。
+    别的框架的应用常常这样：连接池、热缓存、后台任务都写在 lifespan 里。
+    """
+    from contextlib import asynccontextmanager
 
-    这是设计上的选择（生命周期归 Canary，不该有两套），但迁移时必须把老 lifespan 里的事
-    搬成图上的单元。本项目的 ``create_legacy`` 没有 lifespan，就是为了不踩它。
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        ran.append("startup")
+        yield
+        ran.append("shutdown")
+
+    app = FastAPI(lifespan=lifespan)
+
+    @app.get("/ping")
+    async def ping() -> dict:
+        return {"ok": True}
+
+    return app
+
+
+async def test_by_default_the_server_does_not_send_lifespan() -> None:
+    """**默认不发**：生命周期归 Canary，不该有两套。
+
+    上一轮这条是作为"迁移会咬人"的一条记在这里的——"先只换服务器"时，老应用如果把初始化
+    写在 lifespan 里，换完之后那些事**悄悄地不发生了**，而接口照样能通，直到第一个用到
+    连接池的请求打进来。现在有了显式开关（见下一条），默认值仍然是不发。
     """
     ran: list[str] = []
 
-    def make() -> FastAPI:
-        from contextlib import asynccontextmanager
-
-        @asynccontextmanager
-        async def lifespan(_: FastAPI):
-            ran.append("startup")
-            yield
-            ran.append("shutdown")
-
-        app = FastAPI(lifespan=lifespan)
-
-        @app.get("/ping")
-        async def ping() -> dict:
-            return {"ok": True}
-
-        return app
-
-    class Legacy(Server):
+    class Quiet(Server):
         host = "127.0.0.1"
         port = 0
 
         @init
         def build(self) -> None:
-            self.app = make()
+            self.app = legacy_with_lifespan(ran)
 
-    async with running(Legacy) as server:
+    async with running(Quiet) as server:
         url = f"http://127.0.0.1:{server.port}"
         async with httpx.AsyncClient(base_url=url) as client:
             assert (await client.get("/ping")).json() == {"ok": True}
-    assert ran == [], "老应用的 lifespan 一次都没跑"
+    assert ran == [], "默认不向应用发 lifespan 消息"
+
+
+async def test_lifespan_on_runs_the_application_s_own_lifespan() -> None:
+    """``class Gateway(Server, lifespan="on")`` —— 老应用的 lifespan 照常跑。
+
+    顺序是对的：应用的启动发生在 ``Server`` 的 ``@start`` 里、**监听之前**，回收发生在
+    ``@stop`` 里。所以"先只换服务器"这一步不必先把老 lifespan 搬成单元——想搬再搬。
+    """
+    ran: list[str] = []
+
+    class Loud(Server, lifespan="on"):
+        host = "127.0.0.1"
+        port = 0
+
+        @init
+        def build(self) -> None:
+            self.app = legacy_with_lifespan(ran)
+
+    async with running(Loud) as server:
+        assert ran == ["startup"], "监听之前就启动了"
+        url = f"http://127.0.0.1:{server.port}"
+        async with httpx.AsyncClient(base_url=url) as client:
+            assert (await client.get("/ping")).json() == {"ok": True}
+    assert ran == ["startup", "shutdown"], "@stop 里回收"
+
+
+async def test_a_failing_application_lifespan_fails_the_server() -> None:
+    """应用的 lifespan 启动失败 = ``Server`` 启动失败，已启动的依赖照常回收。
+
+    这一条值得钉：uvicorn 自己遇到 lifespan 失败是 ``sys.exit``，那会绕过回收。
+    """
+    reclaimed: list[str] = []
+
+    class Resource(Canary):
+        @init
+        def note(self) -> None:
+            reclaimed.append("init")
+
+        @stop
+        async def release(self) -> None:
+            # 注意是 @stop 钩子，不是覆盖 stop() 方法：回收跑的是钩子，
+            # stop() 只在根单元上被调用一次。
+            reclaimed.append("stop")
+
+    def broken() -> FastAPI:
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def lifespan(_: FastAPI):
+            raise RuntimeError("老应用的缓存预热失败")
+            yield
+
+        return FastAPI(lifespan=lifespan)
+
+    class Doomed(Server, lifespan="on"):
+        resource = dep(Resource)
+        host = "127.0.0.1"
+        port = 0
+
+        @init
+        def build(self) -> None:
+            self.app = broken()
+
+    with pytest.raises(RuntimeError, match="lifespan failed during startup"):
+        async with running(Doomed):
+            pass
+    assert reclaimed == ["init", "stop"]
 
 
 # --- dispatch：两个应用在一个端口上 -----------------------------------------

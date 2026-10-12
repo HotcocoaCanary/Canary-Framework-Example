@@ -8,7 +8,7 @@
 
 ```bash
 uv sync
-uv run pytest                      # 32 个测试（老接口的断言两个阶段各跑一遍）
+uv run pytest                      # 34 个测试（老接口的断言两个阶段各跑一遍）
 
 uv run python main.py              # 阶段一：老应用一行不改，只换服务器（:8040/docs）
 uv run python main.py --stage 2    # 阶段二：新模块与老应用按路径并存（:8041）
@@ -33,6 +33,13 @@ class Stage1(Server, access_log=False):
 这一步什么都没搬，但已经换到了想要的东西：**进程的生命周期归 Canary**。数据库、缓存、
 后台任务都是图上的单元，按依赖顺序启动与回收，不必再往 FastAPI 的 lifespan 里手工拼。
 `Server` 只认 ASGI 协议，所以它不在乎 `self.app` 是 FastAPI、Starlette 还是手写的函数。
+
+**老应用把初始化写在自己的 lifespan 里时，加一个类参数：**
+`class Stage1(Server, lifespan="on")`。默认是不发 lifespan 消息的（生命周期归 Canary，
+不该有两套），于是老应用的 `lifespan` / `on_event("startup")` 一次都不会跑——而接口照样
+能通，直到第一个用到那个连接池的请求打进来。打开之后，应用的启动在本单元的 `@start` 里、
+**监听之前**，回收在 `@stop` 里；启动失败就是 `Server` 启动失败，已启动的依赖照常回收。
+本项目的 `create_legacy` 没有 lifespan，所以没打开它。
 
 **阶段二：新模块作为另一个 ASGI 应用并存。** 迁过来的模块是一个应用单元（`V2Api`，
 `path = "/v2"`），和老应用一起按路径分发：
@@ -84,6 +91,7 @@ shop/vault.py       PaymentSettings 的依赖
 | 维度 | 在哪 |
 |---|---|
 | 我们的 `Server` 服务**别人家的**应用（原生 FastAPI 对象） | [`server.py`](shop/server.py) 阶段一 |
+| 老应用自己的 lifespan：默认不跑，`lifespan="on"` 打开 | [boundaries](tests/test_framework_boundaries.py) |
 | 两个 ASGI 应用按路径并存在一个端口上 | 阶段二的 `dispatch` |
 | 应用单元自己就是 ASGI 应用（也能交给原生服务器，lifespan 驱动图） | [boundaries](tests/test_framework_boundaries.py) |
 | 老 `Depends` 路由怎么拿到图上的单元（迁移期的桥） | [`bridge.py`](shop/bridge.py) |
@@ -94,11 +102,11 @@ shop/vault.py       PaymentSettings 的依赖
 
 ## 四件做之前没想到的事
 
-**老应用的 lifespan 一次都不会跑。** 我们的 `Server` 不向应用发 ASGI 的 lifespan 消息
-（生命周期归 Canary，不该有两套）。所以"先只换服务器"这一步有个陷阱：老应用如果在
-lifespan / `on_event("startup")` 里建连接池、热缓存、起后台任务，换完之后这些**悄悄地
-不发生了**，而接口照样能通——直到第一个用到连接池的请求打进来。迁移时必须把老 lifespan
-里的事搬成图上的单元。这一条钉在
+**老应用的 lifespan 默认一次都不会跑。** 这一条是写这个场景时试出来的：我们的 `Server`
+默认不向应用发 ASGI 的 lifespan 消息（生命周期归 Canary，不该有两套），于是老应用写在
+lifespan 里的连接池、热缓存、后台任务**悄悄地不发生了**，而接口照样能通。报上去之后框架
+加了显式开关 `lifespan="on"`，默认仍是不发。两种情形各有一条正向断言，加上"应用的
+lifespan 启动失败 = `Server` 启动失败、已启动的依赖照常回收"一条，都在
 [`tests/test_framework_boundaries.py`](tests/test_framework_boundaries.py) 里。
 
 **桥不该是框架的事，但它被写了三遍。** 老的 `Depends` 路由要用迁过来的业务单元，这中间
@@ -120,5 +128,14 @@ lifespan / `on_event("startup")` 里建连接池、热缓存、起后台任务�
 `KeyError`），框架都修了；再后来 `mount()` 连同整个 `asgi.fastapi` 适配层一起删掉了，
 所以那三条现在只剩历史意义——这一轮的迁移故事不再需要它。
 
-这一轮新记下的一条是上面那个**老应用的 lifespan 不会被调用**：它不算 bug（设计如此），
-但"先只换服务器"是最常见的迁移第一步，而这个陷阱是静默的，值得写进文档。
+这一轮新记下三条，框架都已按此改掉：
+
+1. **老应用的 lifespan 默认不跑**（上面那条）→ 加了 `lifespan="on"` 开关，默认仍不发。
+2. **`Server` 按"可调用"认应用太松**——一个恰好有 `__call__` 的普通协作者（策略对象、
+   工厂）会被挂到端口上，首个落到它上面的请求 500。现在的规则是**可调用且声明了
+   `path`**，两个条件缺一不可。
+3. **那座"原生 FastAPI 取单元"的桥在四个场景里重复了四遍**，而且有个不显眼的正确写法：
+   依赖函数必须是 `async def`，写成同步 `def` 会被 FastAPI 扔进线程池，吞吐掉到三分之一
+   （实测 6300 → 2022 req/s）。用户决定不由框架提供（不包别人的框架），改为写进
+   [`server.md` 的"在别的框架的接口里用单元"一节](https://hotcocoacanary.github.io/Canary-Framework/zh/extensions/server/)；
+   [`bridge.py`](shop/bridge.py) 的注释指向那里。

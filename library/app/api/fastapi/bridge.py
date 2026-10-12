@@ -12,6 +12,11 @@ service"没法写成 ``dep(...)``，只能在请求时去图上取。
 
 对照 ``app/api/canary/``：那一侧的路由是单元，``catalog = dep(CatalogService)`` 写在类上，
 接口方法直接用 ``self.catalog``——这座桥整个不需要。这就是两种写法最实在的差别。
+
+这座桥的写法在框架文档里有一节：``docs/zh/extensions/server.md`` 的"在别的框架的接口里用
+单元"。两处容易写错的地方都在那里写明了：依赖函数必须是 ``async def``（同步的会被 FastAPI
+扔进线程池，每请求多两次线程切换，实测吞吐掉到三分之一），以及按类型取单元就用
+``canary_framework.test.unit``——生产代码里用它没问题。
 """
 
 from __future__ import annotations

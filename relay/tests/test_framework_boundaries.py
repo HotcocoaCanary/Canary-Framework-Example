@@ -80,6 +80,39 @@ async def test_two_applications_on_one_path_is_refused() -> None:
             pass
 
 
+async def test_only_callable_units_with_a_path_are_served() -> None:
+    """应用的判据是**可调用 + 声明了 ``path``**，缺一不可。
+
+    上一轮这里是一条【毛病】：判据只有"可调用"，于是一个恰好有 ``__call__`` 的普通协作者
+    （策略对象、工厂）会被挂到端口上——真应用的 ``path`` 不是 ``/`` 时，第一个落到它上面的
+    请求得到 ``TypeError: ... takes 2 positional arguments but 4 were given`` → 500；都在
+    ``/`` 时则是启动时一句很难联想的 "two apps answer '/'"。
+
+    现在它只是一个普通依赖。手写的应用单元因此必须写 ``path``（哪怕是 ``"/"``）。
+    """
+    import httpx
+
+    class Strategy(Canary):
+        """A plain collaborator that happens to be callable —— 不是 ASGI 应用。"""
+
+        def __call__(self, amount: int) -> int:
+            return amount * 2
+
+    class Gateway(Server):
+        echo = dep(Echo)  # path = "/echo"
+        strategy = dep(Strategy)  # 可调用，但没有 path
+        host = "127.0.0.1"
+        port = 0
+
+    async with running(Gateway) as server:
+        url = f"http://127.0.0.1:{server.port}"
+        async with httpx.AsyncClient(base_url=url) as client:
+            assert (await client.get("/echo")).status_code == 200
+            # 那个策略对象没被挂上去：落不到它身上，也就不会 500
+            assert (await client.get("/anything")).status_code == 404
+        assert server.strategy(21) == 42, "它照常是个普通协作者"
+
+
 async def test_a_server_with_nothing_to_serve_is_refused() -> None:
     """依赖里没有应用单元、也没有赋 ``self.app`` —— 这是声明上的错，不是运行时的 404。"""
 

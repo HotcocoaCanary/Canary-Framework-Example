@@ -6,6 +6,14 @@
 但已经拿到了想要的东西——进程的生命周期归 Canary：数据库、缓存、后台任务都是图上的单元，
 按依赖顺序启动与回收，而不是靠 FastAPI 的 lifespan 事件手工拼。
 
+**老应用把初始化写在自己的 lifespan 里时，加一个类参数：** ``class Stage1(Server,
+lifespan="on")``。默认不发 lifespan 消息（生命周期归 Canary，不该有两套），所以老应用的
+``lifespan`` / ``on_event("startup")`` 一次都不会跑——接口照样能通，直到第一个用到那个连接
+池的请求打进来。打开之后，应用的启动发生在本单元的 ``@start`` 里、监听之前，回收发生在
+``@stop`` 里，启动失败就是 ``Server`` 启动失败（已启动的依赖照常回收）。本项目的
+``create_legacy`` 没有 lifespan，所以这里没打开；三条测试把两种情形都钉在
+``tests/test_framework_boundaries.py`` 里。
+
     class Stage1(Server):
         graph = dep(ShopGraph)
 

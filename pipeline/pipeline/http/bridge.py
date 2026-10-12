@@ -8,6 +8,11 @@
 目前是后者，而它确实只有三行。
 
 对照 ``pipeline/http/canary.py``：那一侧的路由是单元，``gate = dep(Gate)`` 写在类上。
+
+这座桥的写法在框架文档里有一节：``docs/zh/extensions/server.md`` 的"在别的框架的接口里用
+单元"。两处容易写错的地方都在那里写明了：依赖函数必须是 ``async def``（同步的会被 FastAPI
+扔进线程池，每请求多两次线程切换，实测吞吐掉到三分之一），以及按类型取单元就用
+``canary_framework.test.unit``——生产代码里用它没问题。
 """
 
 from __future__ import annotations

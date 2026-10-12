@@ -56,7 +56,7 @@ cd shop       && uv sync && uv run pytest && uv run python main.py   # :8040，�
 telemetry 用合成波形 + 内存存储，后三个场景的状态全在内存里。接真实的
 PostgreSQL/pgvector、LLM、HTTP 采集源都只需改各自的 `.env`。
 
-测试共 472 条：library 217 + telemetry 58 + relay 99 + pipeline 66 + shop 32。
+测试共 475 条：library 217 + telemetry 58 + relay 100 + pipeline 66 + shop 34。
 带两层 HTTP 的那三个场景里，行为测试对两层**各跑一遍**（`conftest.py` 里一个参数化的
 `stack` fixture），另有一条 `test_parity.py` 把同一串请求打到两层上逐条比对状态码与
 响应体——两层对外的形状必须一致，不一致的地方就是要报告的东西。`shop` 的老接口断言则在
@@ -151,9 +151,9 @@ lifespan 天然提供。
 ```bash
 cd library   && uv run pytest tests/test_framework_boundaries.py   # 32 条：监听、失败回收、替换（两层各一遍）
 cd telemetry && uv run pytest tests/test_framework_boundaries.py   # 25 条：声明、阶段、失败与回收
-cd relay     && uv run pytest tests/test_framework_boundaries.py   # 28 条：Server、dispatch、配置单元
+cd relay     && uv run pytest tests/test_framework_boundaries.py   # 29 条：Server、dispatch、配置单元
 cd pipeline  && uv run pytest tests/test_framework_boundaries.py   # 22 条：自定义阶段、失败与回收、依赖覆盖
-cd shop      && uv run pytest tests/test_framework_boundaries.py   #  9 条：协议两侧怎么组合
+cd shop      && uv run pytest tests/test_framework_boundaries.py   # 11 条：协议两侧怎么组合
 ```
 
 这些测试**钉住框架当前的行为**，既是回归保护，也是一份可执行的说明：

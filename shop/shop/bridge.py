@@ -18,6 +18,11 @@
 
 ``library`` 与 ``relay`` 两个场景里也各有一座同样形状的桥——三个场景写了三遍，这件事记在
 README 里。
+
+这座桥的写法在框架文档里有一节：``docs/zh/extensions/server.md`` 的"在别的框架的接口里用
+单元"。两处容易写错的地方都在那里写明了：依赖函数必须是 ``async def``（同步的会被 FastAPI
+扔进线程池，每请求多两次线程切换，实测吞吐掉到三分之一），以及按类型取单元就用
+``canary_framework.test.unit``——生产代码里用它没问题。
 """
 
 from __future__ import annotations
