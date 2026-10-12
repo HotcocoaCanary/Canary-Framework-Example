@@ -1,15 +1,31 @@
 # canary-framework 多场景示例
 
-用**形态刻意不同**的两个真实项目分别压测
+用**形态刻意不同**的几个真实项目分别压测
 [Canary Framework](https://pypi.org/project/canary-framework/) **1.1**，
 收集单一场景看不到的框架能力与取舍。
 
 ```
-library/     场景一：智能图书馆管理系统 + RAG —— 请求驱动的 HTTP API（Canary + FastAPI）
+library/     场景一：智能图书馆管理系统 + RAG —— 请求驱动的 HTTP API（两层 HTTP 各一版）
 telemetry/   场景二：设备遥测采集与告警     —— 时间驱动的常驻守护进程（纯核心，零 web 依赖）
+relay/       场景三：门店边缘中继           —— 一个进程两个端口、多个应用 + WebSocket（两层各一版）
+pipeline/    场景四：对账单导入流水线       —— HTTP 与队列消费者同进程，两步优雅停机（两层各一版）
+shop/        场景五：电商后台的渐进迁移     —— 已有 FastAPI 应用用 mount() 接入路由单元
 ```
 
-两个目录各自是一个**独立的 uv 工程**（自带 `pyproject.toml` 与 `uv.lock`），
+**有 Web 服务的场景都有两版**：`canary_framework.asgi.fastapi` 一版、自研的
+`canary_framework.asgi.web` 一版，业务代码只有一份，两版只是各自一层薄的 HTTP。
+用 `--stack` 挑一层，两层默认端口不同，可以同时起着用同一个脚本压：
+
+```bash
+cd library  && uv run python main.py --stack web      # :8011（fastapi 版在 :8010）
+cd relay    && uv run python main.py --stack web      # 对外 :8120，管理 :9120
+cd pipeline && uv run python main.py --stack web      # :8130
+```
+
+场景五只有 FastAPI 一版——它讲的就是"已有 FastAPI 应用怎么挂路由单元"，`mount()` 挂的
+是 `APIRouter`，`asgi.web` 里没有这个概念。
+
+每个目录各自是一个**独立的 uv 工程**（自带 `pyproject.toml` 与 `uv.lock`），
 拷出去或作为子模块挂到别的仓库里都能直接跑，互不依赖，也不依赖本仓库根目录。
 
 ## 快速开始
@@ -17,13 +33,41 @@ telemetry/   场景二：设备遥测采集与告警     —— 时间驱动的�
 ```bash
 cd library    && uv sync && uv run pytest && uv run python main.py   # http://127.0.0.1:8010/docs
 cd telemetry  && uv sync && uv run pytest && uv run python main.py   # 守护进程，Ctrl-C 优雅退出
+cd relay      && uv sync && uv run pytest && uv run python main.py   # :8020 对外 + :9020 管理
+cd pipeline   && uv sync && uv run pytest && uv run python main.py   # :8030，Ctrl-C 看两步停机
+cd shop       && uv sync && uv run pytest && uv run python main.py   # :8040，uvicorn 驱动
 ```
 
-两个项目默认都是**零外部依赖**的：library 用 SQLite 内存库 + 离线确定性模型，
-telemetry 用合成波形 + 内存存储。接真实的 PostgreSQL/pgvector、LLM、HTTP 采集源
-都只需改各自的 `.env`。
+加 `--stack web` 就是另一层 HTTP（场景一、三、四）。
 
-测试共 159 条：library 101 + telemetry 58。
+所有项目默认都是**零外部依赖**的：library 用 SQLite 内存库 + 离线确定性模型，
+telemetry 用合成波形 + 内存存储，后三个场景的状态全在内存里。接真实的
+PostgreSQL/pgvector、LLM、HTTP 采集源都只需改各自的 `.env`。
+
+测试共 464 条：library 216 + telemetry 58 + relay 102 + pipeline 63 + shop 25。
+带两层 HTTP 的那三个场景里，行为测试对两层**各跑一遍**（`conftest.py` 里一个参数化的
+`stack` fixture），另有一条 `test_parity.py` 把同一串请求打到两层上逐条比对状态码与
+响应体——两层对外的形状必须一致，不一致的地方就是要报告的东西。
+
+## 后三个场景：压扩展包
+
+场景三到五是为[扩展包](https://hotcocoacanary.github.io/Canary-Framework/zh/extensions/asgi/)
+（`canary_framework.asgi` / `asgi.fastapi` / `config` / `test`）写的，各自挑了
+`library` 那种"一个端口、一个 FastAPI 应用"碰不到的维度：
+
+| | 压的是 | 入口形态 |
+|---|---|---|
+| [`relay`](relay) | 两个端口、四个应用（FastAPI + 手写 ASGI + WebSocket）、手动 `dispatch`、同一个 `App` 被两个 `Server` 依赖、同一个 `Router` 挂两处、两份 `Settings` | `async with Relay()`，`Server` 不是根单元 |
+| [`pipeline`](pipeline) | 自定义阶段对（`serving` / `quiesce`）、两步优雅停机、在途任务的预算与放弃、启动/停止失败的回收、重启、同一种单元的多个实例 | `async with Pipeline()` |
+| [`shop`](shop) | `mount()` 到已有 FastAPI 应用（lifespan 驱动）、老 `Depends` 路由与路由单元共存、迁移期的桥、三份配置（含带依赖与钩子的那种） | `uvicorn shop.asgi:app` |
+
+两层 HTTP 的对照也在这三个场景里：同一份业务换一层 HTTP 要改什么、两层的报文差在哪、
+各自独有的能力是什么，分别记在每个场景的 `tests/test_stack_fastapi.py` 与
+`tests/test_stack_web.py`。
+
+三个场景各自的 README 末尾都有一节"试出来的毛病"，记着这一轮压测发现的框架问题与文档
+缺口，每条都有一个最小复现（写成 `tests/test_framework_boundaries.py` 里标着【毛病】的
+测试）。
 
 ## 1.1 对示例的影响
 
@@ -64,7 +108,7 @@ telemetry 用合成波形 + 内存存储。接真实的 PostgreSQL/pgvector、LL
 **阶段是一等对象。** `Phase("launch", after=start)` 直接就是第四个阶段，无需注册。
 场景二拿它解决了一个 0.9.x 里只能靠拓扑巧合去凑的问题，见下。
 
-## 为什么要两个场景
+## 为什么要多个场景
 
 **缺陷的发现**需要多场景：场景一压的是请求路径上的东西（请求体失败路径、响应校验、
 冷启动并发），却从头到尾触发不了一次生命周期失败——uvicorn 在 lifespan 启动失败时
@@ -92,8 +136,11 @@ lifespan 天然提供。
 ## 每个场景都自带框架边界测试
 
 ```bash
-cd library   && uv run pytest tests/test_framework_boundaries.py   # 21 条：Canary ↔ FastAPI 接缝
+cd library   && uv run pytest tests/test_framework_boundaries.py   # 32 条：监听、失败回收、替换（两层各一遍）
 cd telemetry && uv run pytest tests/test_framework_boundaries.py   # 25 条：声明、阶段、失败与回收
+cd relay     && uv run pytest tests/test_framework_boundaries.py   # 27 条：Server、dispatch、配置单元
+cd pipeline  && uv run pytest tests/test_framework_boundaries.py   # 15 条：自定义阶段、失败与回收
+cd shop      && uv run pytest tests/test_framework_boundaries.py   # 8 条：mount() 的行为与坑
 ```
 
 这些测试**钉住框架当前的行为**，既是回归保护，也是一份可执行的说明：

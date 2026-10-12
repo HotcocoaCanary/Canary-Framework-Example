@@ -1,0 +1,41 @@
+[project]
+name = "canary-shop"
+version = "1.0.0"
+description = "场景五：电商后台的渐进迁移 —— 已有 FastAPI 应用用 mount() 接入路由单元"
+requires-python = ">=3.12"
+dependencies = [
+    "canary-framework[config,fastapi]>=1.1.0,<2",
+    "pydantic>=2.13.4",
+]
+
+# 试用尚未发布的扩展包：指向上一级的框架源码（本仓作为框架仓的 examples 子模块时成立）。
+# 扩展包发布后删掉这一段，改回版本约束。
+[tool.uv.sources]
+canary-framework = { path = "../..", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["shop"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
