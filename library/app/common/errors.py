@@ -1,7 +1,7 @@
 """Domain errors — raised by services, turned into the envelope in one place.
 
 服务层只 ``raise``，不认识任何 HTTP 概念。翻译成 ``{code, data, msg}`` 信封与状态码
-的动作发生在 ``app/wiring.py::install_error_handlers``，全应用一处。
+的动作发生在 ``app/api.py`` 的 ``LibraryApi.install_error_handlers``，全应用一处。
 
 这是这次重写里少数"代码变简单了"的地方。0.9.x 的框架删掉 ``@on_request_error`` 之后，
 异常只剩三条固定出路（绑定失败 422、``HTTPError`` 自带状态码、其余 500），领域异常

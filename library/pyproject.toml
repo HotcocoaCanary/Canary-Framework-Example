@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "场景一：智能图书馆管理系统 —— 请求驱动的 HTTP API + RAG"
 requires-python = ">=3.12"
 dependencies = [
-    "canary-framework>=1.1.0,<2",
+    "canary-framework[config,fastapi,web]>=1.1.0,<2",
     "sqlmodel==0.0.45",
     "aiosqlite>=0.20.0",
     "asyncpg>=0.30.0",
@@ -13,10 +13,12 @@ dependencies = [
     "pydantic>=2.13.4",
     "sqlalchemy>=2.0.52",
     "alembic>=1.19.1",
-    "pydantic-settings>=2.15.0",
-    "uvicorn>=0.52.4",
-    "fastapi>=0.121.0",
 ]
+
+# 试用尚未发布的扩展包：指向上一级的框架源码（本仓作为框架仓的 examples 子模块时成立）。
+# 扩展包发布后删掉这一段，改回版本约束。
+[tool.uv.sources]
+canary-framework = { path = "../..", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
@@ -28,12 +30,12 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    # starlette 1.6 的 TestClient 要求 httpx2；用 httpx 只会警告，但没必要留着
-    "httpx2>=2.10.0",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.ruff]
