@@ -3,14 +3,14 @@
 路由单元：带标记的方法是接口，需要的 service 写成 ``dep(CatalogService)``，接口方法
 是绑定方法，直接用 ``self.catalog``。不经 HTTP 也能调：``await api.get_book(book_id)``。
 
-**前缀逐层叠加。** 这里只写 ``/catalog``，``/api`` 来自依赖它的 ``Api``（``app/api.py``）。
+**前缀逐层叠加。** 这里只写 ``/catalog``，``/api`` 来自依赖它的 ``Api``（``app/api/canary/__init__.py``）。
 上一版每个 router 自己写全 ``/api/catalog``；换成路由单元后挂在哪儿由谁依赖它决定。
 """
 
 from __future__ import annotations
 
 from canary_framework import dep
-from canary_framework.asgi.web import Router, delete, get, patch, post
+from canary_framework.web.asgi.app import Router, delete, get, patch, post
 
 from app.common.response import PageR, R
 from app.module.catalog.schema import (

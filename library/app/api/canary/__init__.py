@@ -1,30 +1,31 @@
-"""The web stack — the same HTTP surface, on ``canary_framework.asgi.web``.
+"""The Canary stack — routers and the application are units.
 
-这是**两层 HTTP 之一**（另一个是 ``app/api/fastapi/``）。业务代码一份也不多：
-``app/module/*/service.py``、``app/infra/``、``config.py`` 都是共用的。
+这是**两层 HTTP 之一**（另一个是 ``app/api/fastapi/``，一个原生 FastAPI 应用）。业务代码
+一份也不多：``app/module/*/service.py``、``app/infra/``、``config.py`` 都是共用的。
 
-和 FastAPI 版逐行对照，差别只有四处：
+这一层的三件事：
 
-* 导入 ``canary_framework.asgi.web`` 而不是 ``...asgi.fastapi``；
-* 路由单元没有 ``tags``——这个包不生成 OpenAPI，标签无处可去；
-* 成功状态码写 ``@post(status=201)``（FastAPI 是 ``status_code=``）；本项目一律用信封，
-  所以两边都没用到；
-* 领域异常用 ``@error(DomainError)`` 标记应用单元的方法，返回 ``Response.json(...)``；
-  FastAPI 版是 ``app.add_exception_handler(...)`` 返回 ``JSONResponse``。
+* **路由是单元**：``dep(CatalogService)`` 写在路由单元上，接口方法是绑定方法，直接用
+  ``self.catalog``——没有 ``Depends``，也没有"按类型从图里取单元"的那层桥（对照
+  ``app/api/fastapi/bridge.py``）；
+* **应用也是单元**，而且**它自己就是一个 ASGI 应用**：``await api(scope, receive, send)``。
+  所以它既能交给本框架的 ``Server``（``main.py``），也能直接交给 uvicorn（``asgi.py``）；
+* 领域异常用 ``@error(DomainError)`` 标记应用单元的方法，返回 ``Response.json(...)``。
 
 没有的东西：OpenAPI、``/docs``、WebSocket、表单上传。换来的是只依赖 pydantic。
 """
 
 from __future__ import annotations
 
-from canary_framework import asgi, dep
-from canary_framework.asgi.web import App, Request, Response, Router, error, get
+from canary_framework import dep
+from canary_framework.web.asgi.app import App, Request, Response, Router, error, get
+from canary_framework.web.asgi.server import Server
 
-from app.api.web.catalog import CatalogApi
-from app.api.web.chat import AssistantApi
-from app.api.web.loan import CirculationApi
-from app.api.web.rag import RagApi
-from app.api.web.reader import ReaderApi
+from app.api.canary.catalog import CatalogApi
+from app.api.canary.chat import AssistantApi
+from app.api.canary.loan import CirculationApi
+from app.api.canary.rag import RagApi
+from app.api.canary.reader import ReaderApi
 from app.common.errors import DomainError
 from app.common.response import R
 from app.infra.ai import ChatModel, EmbeddingModel
@@ -76,13 +77,14 @@ class LibraryApi(App):
         return Response.json(R.fail(exc.message, exc.code), status=exc.code)
 
 
-class Gateway(asgi.Server, access_log=False):
-    """The listener for this stack —— ``python main.py --stack web``.
+class Gateway(Server, access_log=False):
+    """The listener for this stack —— ``python main.py --stack canary``.
 
-    默认端口与 FastAPI 版不同，于是两个栈可以同时起着，用同一个脚本压。
+    服务器单元服务的是 ASGI 应用，不问出处；这里给它的是本栈的应用单元。默认端口与
+    FastAPI 版不同，于是两个栈可以同时起着，用同一个脚本压。
     """
 
     library = dep(LibraryApi)
 
     host = "0.0.0.0"
-    port = 8011
+    port = 8010

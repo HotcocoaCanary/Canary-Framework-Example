@@ -10,22 +10,32 @@ HTTP 接入与队列消费者**在同一个进程里**，停机是两步的：�
 **同一份业务，两层 HTTP。** HTTP 在这条流水线上只是接入口，队列、消费者、账本、闸门与
 停机的两个阶段都在业务那一侧，两层共用：
 
-| 这一层 | 包 | 它带来什么 |
+| 这一层 | 它是什么 | 它带来什么 |
 |---|---|---|
-| [`pipeline/http/fastapi.py`](pipeline/http/fastapi.py) | `canary_framework.asgi.fastapi` | OpenAPI、`/docs`、`tags` |
-| [`pipeline/http/web.py`](pipeline/http/web.py) | `canary_framework.asgi.web` | 只依赖 pydantic，没有 OpenAPI |
+| [`pipeline/http/canary.py`](pipeline/http/canary.py) | 路由与应用都是单元（`canary_framework.web.asgi.app`） | 依赖写在类上，只依赖 pydantic，没有 OpenAPI |
+| [`pipeline/http/fastapi.py`](pipeline/http/fastapi.py) | 一个**原生 FastAPI 应用**（模块级 `APIRouter` + `Depends`） | OpenAPI、`/docs`、`tags` |
+
+框架不包装 FastAPI——ASGI 两边各守协议就能任意组合，不该有适配层。所以这个场景摆出的是
+**两种组合**，而两边都由我们的 `canary_framework.web.asgi.server.Server` 服务：
+
+* **原生 FastAPI 应用 + 我们的 `Server`**：服务器单元在 `@init` 里
+  `self.app = create_app(self.lanes)`；端点是模块级函数，所以要一座按类型取单元的桥
+  （[`bridge.py`](pipeline/http/bridge.py)：`app.state.graph` + `use(Cls)`），还要一个
+  组合根单元 `Lanes`——这一层没有应用单元替它拢住那张图。
+* **我们的应用单元 + 我们的 `Server`**：应用单元自己就是 ASGI 应用，`dep(IngestApp)`
+  就是"服务它"；依赖直接写在路由类上，不需要桥也不需要组合根。
 
 ```bash
 uv sync
-uv run pytest                           # 63 个测试（行为测试跑两遍）
+uv run pytest                              # 66 个测试（行为测试跑两遍）
 
-uv run python main.py                   # fastapi 版，:8030，带 /docs
-uv run python main.py --stack web       # web 版，:8130
-uv run python main.py --stack web --port 9999
+uv run python main.py                      # canary 版，:8030
+uv run python main.py --stack fastapi      # 原生 FastAPI 版，:8130，带 /docs
+uv run python main.py --stack fastapi --port 9999
 ```
 
-Ctrl-C 看两步停机的日志。两层端口差 100，可以同时起着压；`IngestServer` 带
-`access_log=False`（`asgi.Server` 的类参数原样传给 `uvicorn.Config`）。
+Ctrl-C 看两步停机的日志。两层端口差 100（fastapi 版 +100），可以同时起着压；`IngestServer`
+带 `access_log=False`（`Server` 的类参数原样传给 `uvicorn.Config`）。
 
 默认零外部依赖：队列是 `asyncio.Queue`，账本是内存里的 dict。
 
@@ -34,13 +44,17 @@ Ctrl-C 看两步停机的日志。两层端口差 100，可以同时起着压；
 ```
 Pipeline                     根单元，它推进那两个自定义阶段
 ├─ IngestServer   :8030      唯一的端口
-│  └─ IngestApp      /           FastAPI 应用
+│  └─ IngestApp      /           应用单元，自己就是 ASGI 应用
 │     ├─ BatchApi    /batches    提交即入队，不等做完
 │     └─ StatusApi   /status     队列深度、在途、停机日志、给 LB 的 503
 ├─ FastLane                  小批量通道：2 个消费者 + FastQueue
 ├─ BulkLane                  大批量通道：1 个消费者 + BulkQueue
 └─ Gate · JobBook · Ledger · Journal · PipelineSettings
 ```
+
+这是 canary 层的形状。fastapi 层只换掉中间那一截：`IngestApp` 变成一个原生 FastAPI 应用
+（路由与端点在模块级），`IngestServer` 改为 `dep(Lanes)` 并在 `@init` 里把那个应用赋给
+`self.app`。端口之下、`Gate` 之上的东西一个没动。
 
 ## 两个自定义阶段
 
@@ -87,9 +101,12 @@ stop: bulk 通道收工，完成 2 个
 | 启动失败时的回收（自定义阶段不会被推进） | [boundaries](tests/test_framework_boundaries.py) |
 | 停止失败时其余单元照常回收（`ExceptionGroup`） | 同上 |
 | 重启（`@start` 再跑，`@init` 不再跑） | [`test_shutdown.py`](tests/test_shutdown.py) |
-| 两层 HTTP 可换，接入口之外全部共用 | [`pipeline/http/`](pipeline/http) |
+| 两种组合都由我们的 `Server` 服务：原生 FastAPI 应用 / 我们的应用单元 | [`pipeline/http/`](pipeline/http) |
+| 原生 FastAPI 的端点去图上取单元（那座三行的桥） | [`pipeline/http/bridge.py`](pipeline/http/bridge.py) |
+| 没有应用单元时谁来拢住那张图（组合根） | [`fastapi.py`](pipeline/http/fastapi.py) 的 `Lanes` |
 | 测试：`port = 0` / `ASGITransport` / 纯对象三种粒度 | [`tests/`](tests) |
 | 两层逐条比对（含 503 + `Retry-After`、429、404） | [`tests/test_parity.py`](tests/test_parity.py) |
+| 只有一层才有的东西（OpenAPI、`/docs`） | [`tests/test_stacks.py`](tests/test_stacks.py) |
 
 ## 三件做之前没想到的事
 
@@ -111,11 +128,10 @@ stop: bulk 通道收工，完成 2 个
 
 ## 试出来的毛病
 
-两条。第一条写成了测试，标着 **【毛病】**：
+两条，第一条已经修了。
 
-**子类用同名属性覆盖一条 `dep()`，基类那条边仍然成立。** 钩子按属性名解析（文档写了
-"子类覆盖同名方法即替换"），依赖**不是**：它按类型收集，`vars(每个基类)` 里的每个 `Dep`
-都算一条边。于是
+~~**子类用同名属性覆盖一条 `dep()`，基类那条边仍然成立。**~~ **已修**：依赖现在和钩子
+一样按**属性名**解析。上一轮的问题是这样的——
 
 ```python
 class Pool(Canary):
@@ -125,17 +141,17 @@ class FastLane(Pool):
     queue = dep(FastQueue)      # 子类换掉它
 ```
 
-`self.queue` 读到的是 `FastQueue`（属性遮蔽，没问题），但 `JobQueue` **也**在图上：构造、
-`@start`、`@stop` 全跑一遍，只是没有人用它。一个连接池被这样白开一份就不只是浪费了。
-本场景因此把基类里的 `dep()` 去掉、只留类型注解（见
-[`workers.py`](pipeline/workers.py)），由每个子类自己给出那条 `dep()`。
+`self.queue` 读到的是 `FastQueue`（属性遮蔽，没问题），但当时 `JobQueue` **也**在图上：
+构造、`@start`、`@stop` 全跑一遍，只是没有人用它——一个连接池被这样白开一份就不只是浪费。
+那时的绕法是基类只留类型注解。现在基类那条边随覆盖消失，所以
+[`workers.py`](pipeline/workers.py) 写回了最自然的样子：基类一条默认 `dep()`，两条通道各
+换一个队列。对应的测试在
+[`tests/test_framework_boundaries.py`](tests/test_framework_boundaries.py)，改成了正向断言
+（连"覆盖成非 `dep` 则这条依赖消失"也一并钉住）。
 
-期望的行为是二者之一：依赖也按属性名解析，或者这种写法直接报 `DeclarationError`。现在是
-静默多启动一个单元。
-
-第二条不算毛病，是把同一份业务换到 `asgi.web` 时要知道的差异：
+第二条不算毛病，是把同一份业务换到应用单元那一层时要知道的差异：
 
 **校验失败的报文差两处。** `loc` 与 `type` 一致，但 ①`input` 字段只有 FastAPI 有；
-②`msg` 的措辞不同——`asgi.web` 校验的是原始 JSON 字节（JSON 模式），FastAPI 校验的是解析
-后的 Python 对象。普通模型的接受/拒绝一致。最小复现在 `relay` 场景的
+②`msg` 的措辞不同——应用单元那一层校验的是原始 JSON 字节（JSON 模式），FastAPI 校验的是
+解析后的 Python 对象。普通模型的接受/拒绝一致。最小复现在 `relay` 场景的
 [`tests/test_parity.py`](../relay/tests/test_parity.py) 最后一条。

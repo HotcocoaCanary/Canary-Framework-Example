@@ -126,13 +126,13 @@ class Channel:
 
 
 async def test_the_stream_application_can_be_driven_by_hand() -> None:
-    """``asgi.App`` 的 ``self.app`` 就是一个可调用对象，测试可以自己当服务器。"""
+    """这个单元**自己**就是一个 ASGI 应用（``async def __call__``），测试可以自己当服务器。"""
     doubles = {EdgeSettings: EdgeSettings(site_id="bare"), Clock: Clock()}
     async with running(EventStream, doubles) as stream:
         fleet = unit(stream, Fleet)
         channel = Channel()
         scope = {"type": "websocket", "path": "/ws/events", "headers": []}
-        served = asyncio.create_task(stream.app(scope, channel.receive, channel.send))
+        served = asyncio.create_task(stream(scope, channel.receive, channel.send))
 
         channel.push({"type": "websocket.connect"})
         hello = await channel.next_json()
@@ -153,7 +153,7 @@ async def test_a_plain_http_request_to_the_stream_is_refused() -> None:
     doubles = {EdgeSettings: EdgeSettings(), Clock: Clock()}
     async with running(EventStream, doubles) as stream:
         channel = Channel()
-        await stream.app({"type": "http", "path": "/ws/events"}, channel.receive, channel.send)
+        await stream({"type": "http", "path": "/ws/events"}, channel.receive, channel.send)
         assert channel.sent[0]["status"] == 404
 
 

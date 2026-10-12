@@ -58,32 +58,6 @@ async def test_one_metrics_unit_on_two_ports(public, admin, relay) -> None:
     assert on_public == on_admin
 
 
-async def test_one_router_unit_under_two_prefixes(public, admin, relay, layer) -> None:
-    """``HealthApi`` 被两处依赖：``/health`` 与 ``/admin/health``，背后一个实例。"""
-    shared = unit(relay, layer.HealthApi)
-    assert shared.served == 0
-
-    assert (await public.get("/health")).status_code == 200
-    assert (await admin.get("/admin/health")).status_code == 200
-    assert shared.served == 2  # 一个实例数了两次
-
-    # 共享的路由单元不能假设自己的 URL：前缀由依赖路径决定。
-    assert (await admin.get("/health")).status_code == 404
-    assert (await public.get("/admin/health")).status_code == 404
-
-
-async def test_the_admin_port_was_assembled_by_hand(admin, relay) -> None:
-    """``AdminServer`` 在 ``@init`` 里给 ``self.app`` 赋了值，表是自己写的。
-
-    代价也在这条里：依赖的应用单元不再自动加入，漏写一个不会报错。
-    """
-    assert getattr(relay.admin, "app", None) is not None
-    ready = await admin.get("/")
-    assert (ready.status_code, ready.text.strip()) == (200, "ready")
-    assert (await admin.get("/metrics")).status_code == 200  # 手写进表里的
-    assert (await admin.get("/admin/fleet")).status_code == 200
-
-
 @pytest.mark.parametrize(
     ("path", "status"),
     [("/admin", 404), ("/admin/health", 200), ("/admin/fleet", 200), ("/admin/zzz", 404)],
@@ -91,6 +65,6 @@ async def test_the_admin_port_was_assembled_by_hand(admin, relay) -> None:
 async def test_the_admin_app_only_sees_its_own_prefix(admin, path: str, status: int) -> None:
     """``dispatch`` 只转发不改写：应用看到的仍是完整路径，所以路由自己带着 ``/admin``。
 
-    ``/admin`` 本身没有接口——前缀不是路由，``AdminRoot`` 之下才是。
+    ``/admin`` 本身没有接口——前缀不是路由。
     """
     assert (await admin.get(path)).status_code == status

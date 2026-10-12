@@ -18,7 +18,7 @@ from pipeline.testing import rows, settings
 
 async def test_only_the_fastapi_layer_has_openapi() -> None:
     answers = {}
-    for name in ("fastapi", "web"):
+    for name in ("fastapi", "canary"):
         async with running(root(name), {type(settings()): settings()}) as pipe:
             url = f"http://127.0.0.1:{pipe.server.port}"
             async with httpx.AsyncClient(base_url=url) as client:
@@ -27,7 +27,7 @@ async def test_only_the_fastapi_layer_has_openapi() -> None:
                     (await client.get("/docs")).status_code,
                 )
     assert answers["fastapi"] == (200, 200)
-    assert answers["web"] == (404, 404)
+    assert answers["canary"] == (404, 404)
 
 
 async def test_the_openapi_document_covers_both_routers() -> None:
@@ -39,7 +39,7 @@ async def test_the_openapi_document_covers_both_routers() -> None:
     assert schema["info"]["title"] == "对账单导入流水线"
 
 
-@pytest.mark.parametrize("stack", ["fastapi", "web"])
+@pytest.mark.parametrize("stack", ["canary", "fastapi"])
 async def test_the_access_log_is_off_on_both(stack: str) -> None:
     """压测时访问日志会严重干扰结果，所以 ``IngestServer`` 带 ``access_log=False``。"""
     from pipeline.http import stack as stack_module
@@ -47,7 +47,7 @@ async def test_the_access_log_is_off_on_both(stack: str) -> None:
     assert stack_module(stack).IngestServer.__canary_server__["access_log"] is False
 
 
-@pytest.mark.parametrize("stack", ["fastapi", "web"])
+@pytest.mark.parametrize("stack", ["canary", "fastapi"])
 async def test_a_batch_survives_the_whole_round_trip(stack: str) -> None:
     """一条冒烟：两层都能提交、入队、记账。"""
     async with running(root(stack), {type(settings()): settings(row_seconds=0.0)}) as pipe:

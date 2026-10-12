@@ -2,9 +2,9 @@
 
 同一份业务，两层 HTTP，用 ``--stack`` 挑一层::
 
-    python main.py                                   # fastapi 版：对外 :8020，管理 :9020
-    python main.py --stack web                       # web 版：对外 :8120，管理 :9120
-    python main.py --stack web --public-port 8888    # 自己指定端口
+    python main.py                                      # canary 版：对外 :8020，管理 :9020
+    python main.py --stack fastapi                      # 原生 FastAPI 版：对外 :8120，管理 :9120
+    python main.py --stack fastapi --public-port 8888   # 自己指定端口
 
 进程的生命周期归 Canary：``async with Relay()`` 启动整张图（两个端口、四个应用、一个巡检
 循环），信号由这里自己接，退出时框架逆序回收。
@@ -12,7 +12,7 @@
 没有 ``uvicorn main:app``——因为这个进程里**不止一个应用，也不止一个端口**，``main:app``
 那种写法表达不了。uvicorn 在这里是被 ``Server`` 单元驱动的库，不是进程的主人。
 
-两层的端口默认不同（web 版 +100），于是两个栈可以同时起着、用同一个脚本压。两个
+两层的端口默认不同（fastapi 版 +100），于是两个栈可以同时起着、用同一个脚本压。两个
 ``Server`` 都带 ``access_log=False``。
 """
 
@@ -27,13 +27,13 @@ import signal
 from relay.http import NAMES, root
 from relay.settings import AdminSettings, EdgeSettings
 
-#: web 版的默认端口在 fastapi 版上加这个偏移，于是两个栈能同时起着。
-OFFSET = {"fastapi": 0, "web": 100}
+#: 原生 FastAPI 版的默认端口在 canary 版上加这个偏移，于是两个栈能同时起着。
+OFFSET = {"canary": 0, "fastapi": 100}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="门店边缘中继（两层 HTTP 任选一层）")
-    parser.add_argument("--stack", choices=NAMES, default="fastapi", help="HTTP 层（默认 fastapi）")
+    parser.add_argument("--stack", choices=NAMES, default="canary", help="HTTP 层（默认 canary）")
     parser.add_argument("--public-port", type=int, default=None, help="对外端口")
     parser.add_argument("--admin-port", type=int, default=None, help="管理端口")
     return parser.parse_args()

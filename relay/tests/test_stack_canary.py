@@ -1,4 +1,4 @@
-"""只属于 web 那一层的规则：没有 OpenAPI、尾斜杠严格、405 带 ``Allow``、``@error`` 处理器。
+"""只属于应用单元那一层的规则：没有 OpenAPI、尾斜杠严格、405 带 ``Allow``、``@error`` 处理器。
 
 换一层 HTTP 时真正会咬人的就是这些，所以每条都写明"FastAPI 那边是什么样"。
 """
@@ -8,11 +8,11 @@ from __future__ import annotations
 import httpx
 import pytest
 from canary_framework import dep
-from canary_framework.asgi.web import HTTPError, Request, Response, Router, error, get
 from canary_framework.test import running
+from canary_framework.web.asgi.app import HTTPError, Request, Response, Router, error, get
 
 from relay.clock import Clock
-from relay.http import web as layer
+from relay.http import canary as layer
 from relay.settings import AdminSettings, EdgeSettings
 from relay.testing import ManualClock
 
@@ -20,7 +20,7 @@ TOKEN = "test-token"
 
 
 @pytest.fixture
-async def relay_web():
+async def relay_canary():
     doubles = {
         EdgeSettings: EdgeSettings(host="127.0.0.1", port=0, site_id="test-site", sweep_interval_seconds=3600.0),
         AdminSettings: AdminSettings(host="127.0.0.1", port=0, token=TOKEN),
@@ -31,8 +31,8 @@ async def relay_web():
 
 
 @pytest.fixture
-async def public(relay_web):
-    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{relay_web.public.port}") as client:
+async def public(relay_canary):
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{relay_canary.public.port}") as client:
         yield client
 
 
@@ -97,7 +97,7 @@ class ProbedApp(layer.PublicApi):
 async def test_an_error_handler_added_by_a_subclass_wins() -> None:
     doubles = {EdgeSettings: EdgeSettings(site_id="bare"), Clock: ManualClock()}
     async with running(ProbedApp, doubles) as api:
-        transport = httpx.ASGITransport(app=api.app, raise_app_exceptions=False)
+        transport = httpx.ASGITransport(app=api, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
             teapot = await http.get("/probe/boom")
             assert (teapot.status_code, teapot.json()) == (418, {"detail": {"why": "short and stout"}})
@@ -109,3 +109,48 @@ async def test_an_error_handler_added_by_a_subclass_wins() -> None:
             # 继承来的那个处理器照常生效
             missing = await http.get("/devices/ghost")
             assert (missing.status_code, missing.json()["device_id"]) == (404, "ghost")
+
+
+# --- 只有这一层有"路由单元" -------------------------------------------------
+
+
+async def test_one_router_unit_under_two_prefixes(relay_canary) -> None:
+    """``HealthApi`` 被两处依赖：``/health`` 与 ``/admin/health``，背后**一个实例**。
+
+    原生 FastAPI 那一层也能共享，但共享的是**函数**：同一个 ``site_health`` 被两个
+    ``APIRouter`` 挂两次（见 ``relay/http/fastapi.py``）。差别在"共享实例"与"共享函数"。
+    """
+    from canary_framework.test import unit
+
+    shared = unit(relay_canary, layer.HealthApi)
+    assert shared.served == 0
+
+    public_url = f"http://127.0.0.1:{relay_canary.public.port}"
+    admin_url = f"http://127.0.0.1:{relay_canary.admin.port}"
+    async with (
+        httpx.AsyncClient(base_url=public_url) as public_client,
+        httpx.AsyncClient(base_url=admin_url, headers={"x-admin-token": TOKEN}) as admin_client,
+    ):
+        assert (await public_client.get("/health")).status_code == 200
+        assert (await admin_client.get("/admin/health")).status_code == 200
+    assert shared.served == 2  # 一个实例数了两次
+
+
+async def test_endpoint_methods_are_plain_bound_methods(clock) -> None:
+    """接口方法可以不经 HTTP 直接 await —— ``get`` / ``post`` 只打标记，不改造方法。
+
+    原生 FastAPI 那一层的接口是模块级函数，要调它得自己把 ``Depends`` 的那些参数凑出来，
+    所以没有这种"最便宜的一层测试"。
+    """
+    from canary_framework.test import running
+
+    from relay.schema import Heartbeat
+
+    doubles = {EdgeSettings: EdgeSettings(site_id="bare"), Clock: clock}
+    async with running(layer.PublicApi, doubles) as api:
+        view = await api.devices.heartbeat("pos-1", Heartbeat(kind="pos", metrics={"paper": 0.5}))
+        assert (view.device_id, view.status, view.heartbeats) == ("pos-1", "online", 1)
+
+        health = await api.health.health()
+        assert health["site"] == "bare"
+        assert api.devices.fleet is api.health.fleet  # 共享的两个单元就是同一个实例

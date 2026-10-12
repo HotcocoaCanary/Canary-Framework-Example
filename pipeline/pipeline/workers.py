@@ -3,11 +3,13 @@
 消费者池。HTTP 接入与队列消费在同一个进程里，而消费者这一侧是**一个最普通的单元**：
 ``@start`` 起任务、``@quiesce`` 排空、``@stop`` 收任务。没有专门的"后台任务"机制。
 
-**基类里没有 ``queue = dep(...)``。** 这是故意的，而且是这个场景试出来的一个坑：依赖是
-按**类型**收集的，不像钩子那样按属性名覆盖。基类写了 ``queue = dep(JobQueue)``、子类写
-``queue = dep(FastQueue)``，两条边**都**成立——``JobQueue`` 会被构造、启动、回收，只是
-没有人用它。所以基类只留一个类型注解，由子类给出那条 ``dep()``（见 README 的"试出来的
-毛病"）。
+**基类给一条默认依赖，子类换掉它。** ``WorkerPool.queue = dep(JobQueue)`` 是默认，
+``FastLane.queue = dep(FastQueue)`` 替换它——依赖和钩子一样按**属性名**解析，所以基类那条
+边不再成立：``JobQueue`` 不会被构造，也不会被启动。
+
+上一轮这里不是这样写的：当时依赖按**类型**收集，基类那条边会一起成立，``JobQueue`` 被白
+构造、白启动一份（见 README 的"试出来的毛病"，现已修）。那时的绕法是基类只留一个类型
+注解。
 """
 
 from __future__ import annotations
@@ -39,8 +41,8 @@ class WorkerPool(Canary):
     book = dep(JobBook)
     journal = dep(Journal)
 
-    #: 由子类用 ``dep(...)`` 给出。
-    queue: JobQueue
+    #: 这条通道的队列。子类用 ``dep(...)`` 覆盖它，基类这条边随之消失。
+    queue = dep(JobQueue)
     #: 通道名，决定它从配置里读几个消费者。
     lane: str = "default"
 

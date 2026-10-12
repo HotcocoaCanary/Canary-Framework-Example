@@ -1,12 +1,14 @@
 """``/ws/events`` —— the WebSocket side, also just an application unit.
 
-WebSocket 也是一个应用单元：ASGI 的 WebSocket 协议写起来不比 HTTP 复杂，而且这样一来
-"实时流"和"REST 接口"在图上是**并列的两个应用**，只是 ``path`` 不同，由同一个 ``Server``
-在同一个端口上服务。
+WebSocket 也是一个应用单元：**普通的 ``Canary`` 加一个 ``async def __call__``**，不继承
+任何东西。ASGI 的 WebSocket 协议写起来不比 HTTP 复杂，而且这样一来"实时流"和"REST 接口"
+在图上是**并列的两个应用**，只是 ``path`` 不同，由同一个 ``Server`` 在同一个端口上服务。
+
+它不属于任何 web 框架（我们的应用单元也不做 WebSocket），所以**两层 HTTP 共用这一份**。
 
 三件和框架有关的事：
 
-* ``asgi.dispatch`` 会把 WebSocket 的 scope 一起转发过来，所以应用必须两种协议都应答——
+* ``dispatch`` 会把 WebSocket 的 scope 一起转发过来，所以应用必须两种协议都应答——
   只认 HTTP 的话，走错前缀的 WebSocket 会把连接挂住（见 ``plain.reject``）。
 * 事件从 ``Fleet`` 来，而 ``Fleet`` 不认识本单元：依赖是单向的，所以这里在 ``@start`` 里
   订阅、在 ``@stop`` 里退订。
@@ -15,7 +17,7 @@ WebSocket 也是一个应用单元：ASGI 的 WebSocket 协议写起来不比 HT
   依赖顺序本身就是正确的停机顺序。
 
 要让 ``ws://`` 真的握手成功，uvicorn 需要一个 WebSocket 实现（``websockets`` 或
-``wsproto``）。``canary-framework[asgi]`` 只装 uvicorn 本身，所以这个依赖写在本项目的
+``wsproto``）。``canary-framework[server]`` 只装 uvicorn 本身，所以这个依赖写在本项目的
 ``pyproject.toml`` 里。
 """
 
@@ -26,8 +28,7 @@ import contextlib
 import json
 from typing import Any
 
-from canary_framework import dep, init, start, stop
-from canary_framework.asgi import App
+from canary_framework import Canary, dep, init, start, stop
 
 from relay.counters import Counters
 from relay.fleet import Event, Fleet
@@ -80,7 +81,7 @@ class Subscriber:
             self.queue.put_nowait(None)
 
 
-class EventStream(App):
+class EventStream(Canary):
     """A live event feed over WebSocket, fed by ``Fleet``'s listener list.
 
     WebSocket 实时事件流。
@@ -90,6 +91,7 @@ class EventStream(App):
     fleet = dep(Fleet)
     counters = dep(Counters)
 
+    #: 服务器按这个前缀分发到本单元。
     path = "/ws/events"
 
     clients: set[Subscriber]
@@ -97,7 +99,6 @@ class EventStream(App):
     @init
     def build(self) -> None:
         self.clients = set()
-        self.app = self.serve
 
     @start
     async def subscribe(self) -> None:
@@ -120,7 +121,7 @@ class EventStream(App):
             if client.dropped != before:
                 self.counters.incr("relay_stream_dropped_total", client.dropped - before)
 
-    async def serve(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "websocket" or not _under(scope["path"], self.path):
             await reject(send, scope)
             return

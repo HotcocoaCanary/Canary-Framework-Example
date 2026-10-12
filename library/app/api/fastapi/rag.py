@@ -2,48 +2,59 @@
 
 from __future__ import annotations
 
-from canary_framework import dep
-from canary_framework.asgi.fastapi import Router, delete, get, post
+from typing import Annotated
 
+from fastapi import APIRouter
+
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.rag.schema import DocResponse, IndexTextRequest, SearchResponse
 from app.module.rag.service import RagService
 
+router = APIRouter(prefix="/rag", tags=["知识库"])
 
-class RagApi(Router, prefix="/rag", tags=["知识库"]):
-    rag = dep(RagService)
+Rag = Annotated[RagService, use(RagService)]
 
-    @post("/documents")
-    async def index_text(self, body: IndexTextRequest) -> R[DocResponse]:
-        return R.ok(await self.rag.index_text(body))
 
-    @get("/documents")
-    async def list_docs(
-        self, book_id: str | None = None, status: str | None = None, page: int = 1, size: int = 20
-    ) -> PageR[DocResponse]:
-        return PageR.ok(
-            await self.rag.list_docs(book_id=book_id, status=status, page=page, size=size)
-        )
+@router.post("/documents")
+async def index_text(body: IndexTextRequest, rag: Rag) -> R[DocResponse]:
+    return R.ok(await rag.index_text(body))
 
-    @get("/documents/{doc_id}")
-    async def get_doc(self, doc_id: str) -> R[DocResponse]:
-        return R.ok(await self.rag.get_doc(doc_id))
 
-    @post("/documents/{doc_id}/reindex")
-    async def reindex(self, doc_id: str) -> R[DocResponse]:
-        return R.ok(await self.rag.reindex(doc_id))
+@router.get("/documents")
+async def list_docs(
+    rag: Rag,
+    book_id: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> PageR[DocResponse]:
+    return PageR.ok(await rag.list_docs(book_id=book_id, status=status, page=page, size=size))
 
-    @delete("/documents/{doc_id}")
-    async def delete_doc(self, doc_id: str) -> R[str]:
-        return R.ok(await self.rag.delete_doc(doc_id))
 
-    @post("/books/{book_id}/index")
-    async def index_book(self, book_id: str) -> R[DocResponse]:
-        return R.ok(await self.rag.index_book(book_id))
+@router.get("/documents/{doc_id}")
+async def get_doc(doc_id: str, rag: Rag) -> R[DocResponse]:
+    return R.ok(await rag.get_doc(doc_id))
 
-    @get("/search")
-    async def search(
-        self, q: str, top_k: int | None = None, book_id: str | None = None
-    ) -> R[SearchResponse]:
-        passages = await self.rag.retrieve(q, top_k=top_k, book_id=book_id)
-        return R.ok(SearchResponse(query=q, passages=passages))
+
+@router.post("/documents/{doc_id}/reindex")
+async def reindex(doc_id: str, rag: Rag) -> R[DocResponse]:
+    return R.ok(await rag.reindex(doc_id))
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_doc(doc_id: str, rag: Rag) -> R[str]:
+    return R.ok(await rag.delete_doc(doc_id))
+
+
+@router.post("/books/{book_id}/index")
+async def index_book(book_id: str, rag: Rag) -> R[DocResponse]:
+    return R.ok(await rag.index_book(book_id))
+
+
+@router.get("/search")
+async def search(
+    q: str, rag: Rag, top_k: int | None = None, book_id: str | None = None
+) -> R[SearchResponse]:
+    passages = await rag.retrieve(q, top_k=top_k, book_id=book_id)
+    return R.ok(SearchResponse(query=q, passages=passages))

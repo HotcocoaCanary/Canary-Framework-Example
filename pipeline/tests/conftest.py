@@ -54,13 +54,27 @@ async def client(pipe) -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest.fixture
-async def app_client(layer) -> AsyncIterator[httpx.AsyncClient]:
-    """The application alone: no server, no socket —— but the lanes are still running.
+async def app_client(stack: str, layer) -> AsyncIterator[httpx.AsyncClient]:
+    """The intake application alone: no server, no socket —— but the lanes still run.
 
-    消费者不是服务器的依赖，是应用的依赖（``StatusApi`` 读它们），所以这张图里照常启动。
+    两层都只是 ASGI 应用，所以不要服务器也能打：
+
+    * canary 层：``IngestApp`` 这个应用单元自己就是那个应用，消费者是它的依赖的依赖
+      （``StatusApi`` 读两条通道），所以照常启动；
+    * fastapi 层：没有应用单元，所以图的根取 ``Lanes``（见 ``pipeline/http/fastapi.py``
+      旁边那个组合根），应用用 ``create_app(root)`` 另外建。
+
     "要不要监听"和"要不要后台消费"是两件独立的事。
     """
-    async with started(layer.IngestApp) as app:
-        transport = httpx.ASGITransport(app=app.app)
+    if stack == "canary":
+        async with started(layer.IngestApp) as app:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://app") as http:
+                yield http
+        return
+    from pipeline.http.fastapi import Lanes, create_app
+
+    async with started(Lanes) as lanes:
+        transport = httpx.ASGITransport(app=create_app(lanes))
         async with httpx.AsyncClient(transport=transport, base_url="http://app") as http:
             yield http

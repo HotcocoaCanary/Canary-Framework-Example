@@ -42,17 +42,16 @@ source = { editable = "../../" }
 config = [
     { name = "pydantic-settings" },
 ]
-fastapi = [
-    { name = "fastapi" },
+web = [
+    { name = "pydantic" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "canary-framework", extras = ["asgi"], marker = "extra == 'fastapi'" },
-    { name = "canary-framework", extras = ["asgi"], marker = "extra == 'web'" },
-    { name = "canary-framework", extras = ["config", "asgi", "fastapi", "web", "test"], marker = "extra == 'dev'" },
-    { name = "fastapi", marker = "extra == 'fastapi'", specifier = ">=0.121" },
+    { name = "canary-framework", extras = ["app", "server"], marker = "extra == 'web'" },
+    { name = "canary-framework", extras = ["config", "web", "test"], marker = "extra == 'dev'" },
+    { name = "fastapi", marker = "extra == 'dev'", specifier = ">=0.121" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.100" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6,<2" },
@@ -60,22 +59,23 @@ requires-dist = [
     { name = "mkdocs-static-i18n", marker = "extra == 'docs'", specifier = ">=1.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.3.0" },
-    { name = "pydantic", marker = "extra == 'web'", specifier = ">=2.7" },
+    { name = "pydantic", marker = "extra == 'app'", specifier = ">=2.7" },
     { name = "pydantic-settings", marker = "extra == 'config'", specifier = ">=2.15" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.15" },
-    { name = "uvicorn", marker = "extra == 'asgi'", specifier = ">=0.52" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.52" },
 ]
-provides-extras = ["config", "asgi", "fastapi", "web", "docs", "test", "dev"]
+provides-extras = ["config", "app", "server", "web", "docs", "test", "dev"]
 
 [[package]]
 name = "canary-shop"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "canary-framework", extra = ["config", "fastapi"] },
+    { name = "canary-framework", extra = ["config", "web"] },
+    { name = "fastapi" },
     { name = "pydantic" },
 ]
 
@@ -88,7 +88,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "canary-framework", extras = ["config", "fastapi"], editable = "../../" },
+    { name = "canary-framework", extras = ["config", "web"], editable = "../../" },
+    { name = "fastapi", specifier = ">=0.121" },
     { name = "pydantic", specifier = ">=2.13.4" },
 ]
 

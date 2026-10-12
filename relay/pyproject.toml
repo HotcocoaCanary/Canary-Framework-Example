@@ -4,8 +4,10 @@ version = "1.0.0"
 description = "场景三：门店边缘中继 —— 一个进程两个端口、一个端口多个应用（HTTP + WebSocket + /metrics）"
 requires-python = ">=3.12"
 dependencies = [
-    "canary-framework[config,fastapi,web]>=1.1.0,<2",
-    # uvicorn 自己不带 WebSocket 实现，canary-framework[asgi] 也只要 uvicorn；
+    "canary-framework[config,web]>=1.1.0,<2",
+    # 第二层 HTTP 是一个原生 FastAPI 应用（由我们的 Server 服务）
+    "fastapi>=0.121",
+    # uvicorn 自己不带 WebSocket 实现，canary-framework[server] 也只要 uvicorn；
     # 要让 ws:// 真的握手成功，得自己加一个。
     "websockets>=13.0",
     "pydantic>=2.13.4",

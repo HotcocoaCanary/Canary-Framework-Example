@@ -1,16 +1,21 @@
-"""The web layer —— the same HTTP surface, on ``canary_framework.asgi.web``.
+"""The Canary layer —— routers and the two applications are units.
 
-第二层 HTTP。和 ``fastapi.py`` 逐行对照，差别只有五处（都在那边的开头列着）。接口方法的
-**函数体一个字都没改**——它们本来就只是在调业务单元。
+第二层 HTTP：``canary_framework.web.asgi.app``。和 ``fastapi.py``（一个原生 FastAPI 应用）
+对照，这一层的特点是：
 
-这一层没有的东西：OpenAPI、``/docs``、``tags``、应用单元的类参数。换来的是只依赖
-pydantic。
+* 路由是单元，``fleet = dep(Fleet)`` 写在类上，接口方法直接用 ``self.fleet``——没有
+  ``Depends``，也没有那座"按类型取单元"的桥；
+* 应用单元**自己就是 ASGI 应用**，所以 ``Server`` 直接依赖它就行（``dep(PublicApi)``），
+  不必在 ``@init`` 里拼；
+* 领域异常用 ``@error(...)`` 标记应用单元的方法。
+
+没有的东西：OpenAPI、``/docs``、``tags``。换来的是只依赖 pydantic。
 """
 
 from __future__ import annotations
 
 from canary_framework import dep, init
-from canary_framework.asgi.web import App, Request, Response, Router, error, get, post
+from canary_framework.web.asgi.app import App, Request, Response, Router, error, get, post
 
 from relay import server
 from relay.clock import Clock
@@ -163,6 +168,10 @@ class PublicServer(server.PublicServer):
 
 class AdminServer(server.AdminServer):
     console = dep(AdminApp)
+
+    @init
+    def build(self) -> None:
+        self.app = self.assemble(self.console, self.console.path)
 
 
 class Relay(server.Relay):

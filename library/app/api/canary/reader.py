@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from canary_framework import dep
-from canary_framework.asgi.web import Router, delete, get, patch, post
+from canary_framework.web.asgi.app import Router, delete, get, patch, post
 
 from app.common.response import PageR, R
 from app.module.reader.schema import (

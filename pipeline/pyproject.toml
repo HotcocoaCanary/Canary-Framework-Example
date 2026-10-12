@@ -4,7 +4,9 @@ version = "1.0.0"
 description = "场景四：对账单导入流水线 —— HTTP 接入与队列消费者同进程，两步优雅停机"
 requires-python = ">=3.12"
 dependencies = [
-    "canary-framework[config,fastapi,web]>=1.1.0,<2",
+    "canary-framework[config,web]>=1.1.0,<2",
+    # 第二层 HTTP 是一个原生 FastAPI 应用（由我们的 Server 服务）
+    "fastapi>=0.121",
     "pydantic>=2.13.4",
 ]
 

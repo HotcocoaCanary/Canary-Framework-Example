@@ -1,12 +1,12 @@
 """Executable notes on running an HTTP application as part of the graph.
 
 上一版这里钉的是 Canary ↔ FastAPI 的接缝：两层生命周期怎么对接、请求怎么拿到单元。换成
-``canary_framework.asgi`` 之后接缝没有了——应用、路由、监听都是图上的单元——所以这个文件
+``canary_framework.web.asgi`` 之后接缝没有了——应用、监听都是图上的单元——所以这个文件
 现在钉的是：监听是生命周期的一部分、启动失败时的表现、领域异常怎么落地、替身怎么换，
 以及框架仍然不提供的东西。
 
 **这些断言对两层 HTTP 都成立**，所以这个文件跑两遍（``conftest.py`` 的 ``stack``）。
-只属于某一层的东西在 ``test_stack_fastapi.py`` / ``test_stack_web.py``。
+只属于某一层的东西在 ``test_stack_fastapi.py`` / ``test_stack_canary.py``。
 """
 
 from __future__ import annotations
@@ -18,10 +18,9 @@ import pytest
 from canary_framework import Canary, LifecycleError, dep, scope_of, start, stop
 from canary_framework.test import running, unit
 
-from app.api import application
 from app.common.errors import ConflictError, NotFoundError, ValidationError
 from app.infra.db import Database
-from app.testing import listener, make_book, make_reader
+from app.testing import listener, make_book, make_reader, running_stack
 from config import AppConfig
 
 
@@ -134,14 +133,16 @@ async def test_an_endpoint_uses_the_very_instance_from_the_graph(client, root):
     body = (await client.get("/api/health")).json()["data"]
     assert body["dialect"] == unit(root, Database).dialect
     # 路由单元上的依赖就是图里那一个，不是新造的
-    assert root.api.catalog.catalog is unit(root, CatalogService)
+    assert unit(root, CatalogService).database is unit(root, Database)
     assert unit(root, CatalogService).database is unit(root, Database)
 
 
 async def test_a_domain_error_is_an_ordinary_exception_without_http(root):
-    """不经 HTTP 调接口方法，领域异常就是普通异常——信封是应用单元加上去的。"""
+    """不经 HTTP 调 service，领域异常就是普通异常——信封是 HTTP 那一层加上去的。"""
+    from app.module.catalog.service import CatalogService as Catalog
+
     with pytest.raises(NotFoundError):
-        await root.api.catalog.get_book("bk_does_not_exist")
+        await unit(root, Catalog).get_book("bk_does_not_exist")
 
 
 def test_reading_a_dependency_outside_the_lifecycle_is_refused():
@@ -206,7 +207,7 @@ async def test_a_request_body_that_fails_validation_is_422_before_any_service_ru
 async def test_a_double_replaces_the_real_config_before_anything_starts(stack):
     """整张图跑在测试给的配置上，真配置连构造都不会发生。"""
     doubles = {AppConfig: AppConfig(embedding_dim=64, chunk_size=99)}
-    async with running(application(stack), doubles) as root:
+    async with running_stack(stack, doubles) as (root, _app):
         assert unit(root, AppConfig).embedding_dim == 64
         assert unit(root, Database).config.chunk_size == 99
         assert unit(root, AppConfig).storage == "sqlite"

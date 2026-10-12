@@ -114,7 +114,7 @@ async def answers_of(stack: str) -> list[tuple[str, int, Any]]:
 async def test_both_stacks_answer_the_same_script() -> None:
     """同一串请求，两层的状态码与响应体逐条相同——包括 ``/metrics`` 的那段文本。"""
     theirs = await answers_of("fastapi")
-    ours = await answers_of("web")
+    ours = await answers_of("canary")
 
     differences = [
         (step, left, right)
@@ -122,7 +122,7 @@ async def test_both_stacks_answer_the_same_script() -> None:
         if left != right
     ]
     assert not differences, "\n".join(
-        f"{step}\n  fastapi: {left}\n  web:     {right}" for step, left, right in differences
+        f"{step}\n  fastapi: {left}\n  canary:  {right}" for step, left, right in differences
     )
 
 
@@ -144,11 +144,11 @@ async def test_the_validation_error_bodies_differ_in_two_ways() -> None:
     1. ``input`` 只有 FastAPI 的错误里有（被拒的那份输入）。``asgi.web`` 调 pydantic 的
        ``errors(include_input=False)``，所以没有。
     2. ``msg`` 的措辞不同：FastAPI 把请求体解析成 Python 对象再校验
-       （``validate_python``），``asgi.web`` 直接校验**原始 JSON 字节**
+       （``validate_python``），应用单元那层直接校验**原始 JSON 字节**
        （``validate_json``）。于是同一个 ``dict_type`` 错误，一边说
        "Input should be a valid dictionary"，另一边说 "Input should be an object"。
 
-    第 2 点是 ``asgi.web`` 的选择，``web.md`` 里写明了："请求体用的是 pydantic 的 JSON
+    第 2 点是应用单元那一层的选择，``web.md`` 里写明了："请求体用的是 pydantic 的 JSON
     模式，直接校验原始字节，所以 ``strict=True`` 的模型也接受 JSON 里的日期、UUID 这类
     字符串。"普通模型两种模式的接受/拒绝是一致的，差的只是 ``msg`` 的措辞。
 
@@ -165,7 +165,7 @@ async def test_the_validation_error_bodies_differ_in_two_ways() -> None:
                 assert answer.status_code == 422
                 bodies[name] = answer.json()["detail"]
 
-    theirs, ours = bodies["fastapi"], bodies["web"]
+    theirs, ours = bodies["fastapi"], bodies["canary"]
     assert [(e["loc"], e["type"]) for e in theirs] == [(e["loc"], e["type"]) for e in ours]
     assert all("input" in e for e in theirs)
     assert not any("input" in e for e in ours)

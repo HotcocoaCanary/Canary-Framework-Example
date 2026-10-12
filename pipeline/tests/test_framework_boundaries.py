@@ -226,28 +226,18 @@ async def test_a_cycle_is_reported_before_any_hook_runs() -> None:
         del A.b
 
 
-# -- 【毛病】同名覆盖一条 dep() ---------------------------------------------
+# -- 子类换掉一条依赖 ------------------------------------------------------
 
 
-async def test_overriding_a_dep_by_name_keeps_the_base_class_edge() -> None:
-    """**【毛病】** 子类用同名属性覆盖 ``dep()`` 时，基类那条边**仍然成立**。
+async def test_overriding_a_dep_by_name_replaces_the_base_class_edge() -> None:
+    """子类用同名属性覆盖 ``dep()`` 就是替换——依赖和钩子一样按**属性名**解析。
 
-    钩子按属性名解析——"子类覆盖同名方法即替换"，文档这么写的。依赖**不是**：它按类型
-    收集，``vars(每个基类)`` 里的每个 ``Dep`` 都算一条边。于是::
+    上一轮这里是一条【毛病】：依赖当时按**类型**收集，``vars(每个基类)`` 里的每个 ``Dep``
+    都算一条边，于是"基类给个默认协作者、子类换掉它"这种最自然的模板写法会**静默多启动
+    一个单元**（``Default`` 被构造、``@start``、``@stop`` 全跑一遍，只是没人用它）。
 
-        class Pool(Canary):
-            queue = dep(JobQueue)       # 基类给个默认
-
-        class FastLane(Pool):
-            queue = dep(FastQueue)      # 子类换掉它
-
-    ``self.queue`` 读到的是 ``FastQueue``（属性遮蔽，没问题），但 ``JobQueue`` **也**在
-    图上：构造、``@start``、``@stop`` 全跑一遍，只是没有人用它。一个数据库连接池被这样
-    白开一份，是会出事的。
-
-    这个场景因此把基类里的那条 ``dep()`` 去掉了，只留一个类型注解，由每个子类自己给出
-    （见 ``pipeline/workers.py``）。期望的行为是：要么依赖也按属性名解析，要么在这种
-    写法上直接报 ``DeclarationError``——现在是静默多启动一个单元。
+    现在基类那条边随覆盖消失，所以 ``pipeline/workers.py`` 与 ``shop/warehouse.py`` 都写回
+    了最自然的样子：基类一条默认 ``dep()``，子类换掉它。
     """
     started_units: list[str] = []
 
@@ -267,12 +257,45 @@ async def test_overriding_a_dep_by_name_keeps_the_base_class_edge() -> None:
     class Derived(Base):
         collaborator = dep(Replacement)
 
-    assert [cls.__name__ for cls in deps_of(Derived)] == ["Default", "Replacement"]
+    assert [cls.__name__ for cls in deps_of(Base)] == ["Default"]
+    assert [cls.__name__ for cls in deps_of(Derived)] == ["Replacement"]
 
     async with running(Derived) as derived:
         assert isinstance(derived.collaborator, Replacement)
-        # 期望: ["Replacement"]
-        assert started_units == ["Default", "Replacement"]
+        assert started_units == ["Replacement"], "基类那条边不该再成立"
+
+
+async def test_overriding_a_dep_with_something_else_removes_it() -> None:
+    """覆盖成不是 ``dep()`` 的东西，这条依赖就没有了——和"覆盖但不再标记的钩子"一个道理。"""
+
+    class Leaf(Canary):
+        pass
+
+    class Base(Canary):
+        leaf = dep(Leaf)
+
+    class Plain(Base):
+        leaf = "不再是依赖"  # type: ignore[assignment]
+
+    assert [cls.__name__ for cls in deps_of(Base)] == ["Leaf"]
+    assert deps_of(Plain) == ()
+
+    async with running(Plain) as plain:
+        assert plain.leaf == "不再是依赖"
+
+
+async def test_the_two_lanes_each_replace_the_default_queue(pipe) -> None:
+    """本场景的实际用法：``WorkerPool.queue = dep(JobQueue)`` 是默认，两条通道各换一个。"""
+    from pipeline.lanes import BulkQueue, FastQueue
+    from pipeline.queue import JobQueue
+    from pipeline.workers import WorkerPool
+
+    assert JobQueue in deps_of(WorkerPool)
+    assert JobQueue not in deps_of(type(pipe.fast))
+    assert isinstance(pipe.fast.queue, FastQueue)
+    assert isinstance(pipe.bulk.queue, BulkQueue)
+    # 图上没有那个默认队列的实例
+    assert JobQueue not in scope_of(pipe).instances
 
 
 # -- 测试辅助 --------------------------------------------------------------

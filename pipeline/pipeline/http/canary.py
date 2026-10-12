@@ -1,14 +1,18 @@
-"""The web layer —— the same intake, on ``canary_framework.asgi.web``.
+"""The Canary layer —— the intake as units.
 
-第二层 HTTP。接口方法的**函数体一个字都没改**——它们本来就只是在碰业务单元。差别只有四处
-（在 ``fastapi.py`` 的开头列着），其中最明显的是领域异常：这边用 ``@error(...)`` 标记应用
-单元的方法，返回 ``Response.json(...)``，而不是 ``app.add_exception_handler(...)``。
+第二层 HTTP：``canary_framework.web.asgi.app``。路由是单元（``gate = dep(Gate)`` 写在类
+上），应用单元**自己就是 ASGI 应用**，所以 ``IngestServer`` 只要 ``dep(IngestApp)``。
+
+和 ``fastapi.py``（一个原生 FastAPI 应用）比：那边的接口是模块级函数，要用 ``Depends``
+加一座按类型取单元的桥；领域异常那边是 ``app.add_exception_handler(...)``，这边是
+``@error(...)`` 标记应用单元的方法。接口的**函数体两边一个字都不差**——它们本来就只是在
+碰业务单元。
 """
 
 from __future__ import annotations
 
 from canary_framework import dep
-from canary_framework.asgi.web import App, Request, Response, Router, error, get, post
+from canary_framework.web.asgi.app import App, Request, Response, Router, error, get, post
 
 from pipeline import app as base
 from pipeline.errors import UnknownJob

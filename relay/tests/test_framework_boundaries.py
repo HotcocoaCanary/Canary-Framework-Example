@@ -14,8 +14,10 @@ import socket
 import time
 
 import pytest
-from canary_framework import Canary, LifecycleError, asgi, dep, init, scope_of, stop
+from canary_framework import Canary, LifecycleError, dep, init, scope_of, stop
 from canary_framework.test import running, unit
+from canary_framework.web.asgi import dispatch
+from canary_framework.web.asgi.server import Server
 
 from relay import server
 from relay.clock import Clock
@@ -43,22 +45,22 @@ async def answer(scope, receive, send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-class Echo(asgi.App):
+class Echo(Canary):
+    """An application unit: a plain unit with ``__call__``. 服务器只认协议。"""
+
     path = "/echo"
 
-    @init
-    def build(self) -> None:
-        self.app = answer
+    async def __call__(self, scope, receive, send) -> None:
+        await answer(scope, receive, send)
 
 
-class AlsoEcho(asgi.App):
+class AlsoEcho(Canary):
     """Another application unit on the **same** path."""
 
     path = "/echo"
 
-    @init
-    def build(self) -> None:
-        self.app = answer
+    async def __call__(self, scope, receive, send) -> None:
+        await answer(scope, receive, send)
 
 
 # -- Server：依赖即服务，以及它的两种失败 ----------------------------------
@@ -67,7 +69,7 @@ class AlsoEcho(asgi.App):
 async def test_two_applications_on_one_path_is_refused() -> None:
     """``asgi`` 文档的承诺：两个应用的 ``path`` 相同时 ``start()`` 抛 ``LifecycleError``。"""
 
-    class Clash(asgi.Server):
+    class Clash(Server):
         one = dep(Echo)
         two = dep(AlsoEcho)
         host = "127.0.0.1"
@@ -81,7 +83,7 @@ async def test_two_applications_on_one_path_is_refused() -> None:
 async def test_a_server_with_nothing_to_serve_is_refused() -> None:
     """依赖里没有应用单元、也没有赋 ``self.app`` —— 这是声明上的错，不是运行时的 404。"""
 
-    class Empty(asgi.Server):
+    class Empty(Server):
         clock = dep(Clock)  # 依赖了东西，但没有一个是 App
         host = "127.0.0.1"
         port = 0
@@ -98,14 +100,14 @@ async def test_assigning_self_app_takes_over_from_the_dependencies() -> None:
     ``dispatch`` 的表里。
     """
 
-    class Manual(asgi.Server):
+    class Manual(Server):
         echo = dep(Echo)  # 依赖了，但下面没把它写进表里
         host = "127.0.0.1"
         port = 0
 
         @init
         def build(self) -> None:
-            self.app = asgi.dispatch({"/only": answer})
+            self.app = dispatch({"/only": answer})
 
     import httpx
 
@@ -121,12 +123,11 @@ async def test_a_busy_port_fails_the_start_and_reclaims_what_started() -> None:
     """端口被占用时 ``start()`` 抛 ``OSError``，已启动的依赖照常回收。"""
     reclaimed: list[str] = []
 
-    class Noted(asgi.App):
+    class Noted(Canary):
         path = "/"
 
-        @init
-        def build(self) -> None:
-            self.app = answer
+        async def __call__(self, scope, receive, send) -> None:
+            await answer(scope, receive, send)
 
         @stop
         async def note(self) -> None:
@@ -136,7 +137,7 @@ async def test_a_busy_port_fails_the_start_and_reclaims_what_started() -> None:
     try:
         taken = squatter.getsockname()[1]
 
-        class Blocked(asgi.Server):
+        class Blocked(Server):
             app_unit = dep(Noted)
             host = "127.0.0.1"
             port = taken
@@ -161,19 +162,18 @@ async def test_stop_runs_dependents_before_dependencies() -> None:
         async def note(self) -> None:
             order.append("leaf")
 
-    class Served(asgi.App):
+    class Served(Canary):
         leaf = dep(Leaf)
         path = "/"
 
-        @init
-        def build(self) -> None:
-            self.app = answer
+        async def __call__(self, scope, receive, send) -> None:
+            await answer(scope, receive, send)
 
         @stop
         async def note(self) -> None:
             order.append("app")
 
-    class Listening(asgi.Server):
+    class Listening(Server):
         served = dep(Served)
         host = "127.0.0.1"
         port = 0
@@ -199,18 +199,17 @@ async def test_an_application_shared_by_two_servers_stops_once_and_last() -> Non
     """同一个应用单元被两个 ``Server`` 依赖：一个实例，一次回收，且在两个端口都关掉之后。"""
     order: list[str] = []
 
-    class Shared(asgi.App):
+    class Shared(Canary):
         path = "/"
 
-        @init
-        def build(self) -> None:
-            self.app = answer
+        async def __call__(self, scope, receive, send) -> None:
+            await answer(scope, receive, send)
 
         @stop
         async def note(self) -> None:
             order.append("app")
 
-    class One(asgi.Server):
+    class One(Server):
         shared = dep(Shared)
         host = "127.0.0.1"
         port = 0
@@ -219,7 +218,7 @@ async def test_an_application_shared_by_two_servers_stops_once_and_last() -> Non
         async def note(self) -> None:
             order.append("one")
 
-    class Two(asgi.Server):
+    class Two(Server):
         shared = dep(Shared)
         host = "127.0.0.1"
         port = 0
@@ -244,22 +243,18 @@ async def test_the_real_process_has_two_ports_and_no_listener_at_the_root(relay)
     assert isinstance(relay.public, server.PublicServer)
     assert isinstance(relay.admin, server.AdminServer)
     assert unit(relay, Metrics) is relay.admin.metrics
-    assert not isinstance(relay, asgi.Server)
+    assert not isinstance(relay, Server)
 
 
 # -- 在途请求的上限：类参数透传 uvicorn --------------------------------------
 
 
-class Slow(asgi.App):
+class Slow(Canary):
     """An application that takes 1.5s to answer."""
 
     path = "/"
 
-    @init
-    def build(self) -> None:
-        self.app = self.serve
-
-    async def serve(self, scope, receive, send) -> None:
+    async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http":
             return
         await asyncio.sleep(1.5)
@@ -267,7 +262,7 @@ class Slow(asgi.App):
         await send({"type": "http.response.body", "body": b""})
 
 
-class Patient(asgi.Server):
+class Patient(Server):
     """No timeout configured: uvicorn waits for the in-flight request, however long."""
 
     slow = dep(Slow)
@@ -275,7 +270,7 @@ class Patient(asgi.Server):
     port = 0
 
 
-class Impatient(asgi.Server, timeout_graceful_shutdown=1):
+class Impatient(Server, timeout_graceful_shutdown=1):
     """A bounded wait —— 类参数原样传给 ``uvicorn.Config``。"""
 
     slow = dep(Slow)
@@ -283,7 +278,7 @@ class Impatient(asgi.Server, timeout_graceful_shutdown=1):
     port = 0
 
 
-async def _stop_while_a_request_is_in_flight(server_class: type[asgi.Server]) -> float:
+async def _stop_while_a_request_is_in_flight(server_class: type[Server]) -> float:
     """Start, fire a slow request, stop, and report how long ``stop()`` took."""
     import httpx
 
@@ -309,7 +304,7 @@ async def test_without_a_timeout_the_in_flight_request_holds_the_graph_open() ->
 
 
 async def test_a_class_parameter_bounds_that_wait() -> None:
-    """``class Impatient(asgi.Server, timeout_graceful_shutdown=1)`` —— 类参数透传 uvicorn。
+    """``class Impatient(Server, timeout_graceful_shutdown=1)`` —— 类参数透传 uvicorn。
 
     1.5s 的请求、1s 的预算：``stop()`` 到点就回收，不再无限等。``proxy_headers``、
     ``forwarded_allow_ips``、``access_log`` 这些也是同一条路（本场景的两个 Server 都带
@@ -325,59 +320,75 @@ async def test_the_real_servers_turn_the_access_log_off(relay) -> None:
     assert type(relay.admin).__canary_server__["access_log"] is False
 
 
-# -- 【毛病】port = 0 只在第一次成立 ---------------------------------------
+# -- port = 0 与重启 --------------------------------------------------------
 
 
-async def test_restarting_a_server_reuses_the_port_it_was_given() -> None:
-    """**【毛病】** ``@start`` 把实际端口写回 ``self.port``，所以重启时 ``port = 0`` 的
-    语义丢了。
+async def test_a_restart_asks_the_system_for_a_port_again() -> None:
+    """``port = 0`` 每次启动都重新分配：服务期间 ``server.port`` 是实际端口，停止后还原。
 
-    文档说"``port = 0`` 由系统分配端口，开始服务后 ``server.port`` 是实际端口"。两件事
-    用了同一个属性，于是第二次 ``start()`` 拿着上次分到的端口去绑——那个端口此时可能已经
-    被别人占了，重启就失败。期望的行为是：请求的端口与实际端口分开（比如保留 ``port``，
-    另给一个 ``bound_port``），或者 ``@stop`` 把 ``port`` 还原回去。
+    上一轮这里是一条【毛病】——``@start`` 把实际端口写回 ``self.port``，"请求的端口"和
+    "实际端口"共用一个属性，于是重启时拿着上次分到的那个去绑，撞上占用就起不来。现在
+    ``@stop`` 会还原声明的值，所以这条改成了正向断言：**同一个服务器对象重启之后换了端口，
+    而且老端口被别人占着也照样起得来。**
     """
 
-    class Restartable(asgi.Server):
+    class Restartable(Server):
         echo = dep(Echo)
         host = "127.0.0.1"
         port = 0
 
     server = Restartable()
-    await server.init()
-    await server.start()
-    first = server.port
-    await server.stop()
-
-    assert server.port == first  # 停下来之后仍然是上次分到的那个，不是 0
+    async with server:
+        first = server.port
+        assert first != 0, "服务期间是实际端口"
+    assert server.port == 0, "停止之后还原成声明的值"
 
     squatter = socket.create_server(("127.0.0.1", first))
     try:
-        with pytest.raises(OSError):
-            await server.start()  # 期望：再分配一个新端口；实际：撞上占用
+        async with server:  # 老端口被占着也无妨：系统再给一个
+            assert server.port not in (0, first)
     finally:
         squatter.close()
-        await server.stop()
+    assert server.port == 0
 
 
-async def test_restarting_a_server_works_when_the_port_is_free() -> None:
-    """重启本身是成立的：``@start`` 会再跑，``@init`` 不会。
+async def test_a_fixed_port_is_not_touched_by_any_of_this() -> None:
+    """写死端口的服务器，``port`` 自始至终是那个数——还原只对 ``port = 0`` 有意义。"""
+    free = socket.create_server(("127.0.0.1", 0))
+    fixed = free.getsockname()[1]
+    free.close()
 
-    这一条是上一条的另一半——``stop()`` 只把 ``start`` 和以它为前驱的阶段还原成空闲，
-    ``init`` 仍然是"已进入"。所以在 ``@init`` 里建、在 ``@stop`` 里拆的东西，重启之后
-    不会被重建。本场景的应用单元因此都把"可回收的资源"放在 ``@start``。
+    class Fixed(Server):
+        echo = dep(Echo)
+        host = "127.0.0.1"
+        port = fixed
+
+    server = Fixed()
+    async with server:
+        assert server.port == fixed
+    assert server.port == fixed
+
+
+async def test_restarting_re_runs_start_but_not_init() -> None:
+    """重启：``@start`` 会再跑，``@init`` 不会。
+
+    ``stop()`` 只把 ``start`` 和以它为前驱的阶段还原成空闲，``init`` 仍然是"已进入"。
+    所以在 ``@init`` 里建、在 ``@stop`` 里拆的东西，重启之后不会被重建；本场景的应用单元
+    因此都把"可回收的资源"放在 ``@start``。
     """
     built: list[str] = []
 
-    class Once(asgi.App):
+    class Once(Canary):
         path = "/"
 
         @init
         def build(self) -> None:
             built.append("init")
-            self.app = answer
 
-    class Restartable(asgi.Server):
+        async def __call__(self, scope, receive, send) -> None:
+            await answer(scope, receive, send)
+
+    class Restartable(Server):
         once = dep(Once)
         host = "127.0.0.1"
         port = 0
@@ -388,7 +399,7 @@ async def test_restarting_a_server_works_when_the_port_is_free() -> None:
     assert built == ["init"]
 
     async with server:  # 第二次：@start 再跑，@init 不再跑
-        assert server.port == first
+        assert server.port != first, "新的一次监听，新的端口"
     assert built == ["init"]
 
 
@@ -404,7 +415,7 @@ def test_dispatch_matches_whole_segments_longest_first() -> None:
 
         return application
 
-    table = asgi.dispatch({"/": app("root"), "/api": app("api"), "/api/v2": app("v2")})
+    table = dispatch({"/": app("root"), "/api": app("api"), "/api/v2": app("v2")})
 
     async def call(path: str) -> None:
         await table({"type": "http", "path": path}, None, None)
@@ -422,34 +433,37 @@ def test_dispatch_normalises_trailing_slashes_and_refuses_duplicates() -> None:
         pass
 
     with pytest.raises(ValueError, match="given twice"):
-        asgi.dispatch({"/api": app, "/api/": app})
+        dispatch({"/api": app, "/api/": app})
     with pytest.raises(ValueError, match="must start with"):
-        asgi.dispatch({"api": app})
+        dispatch({"api": app})
 
 
-async def test_dispatch_says_nothing_to_a_lifespan_scope() -> None:
-    """**【毛病】** ``dispatch`` 收到 ``lifespan`` 的 scope 时直接返回，一条消息都不送。
+async def test_dispatch_answers_the_lifespan_protocol_itself() -> None:
+    """``dispatch`` 自己应答 lifespan，不转发给子应用。
 
-    框架自己的 ``Server`` 用 ``lifespan="off"``，所以进程里碰不到；但 ``dispatch`` 是
-    **公开导出**的函数，拿它拼出来的应用交给任何会驱动 lifespan 的东西（Starlette 的
-    ``TestClient``、``uvicorn --lifespan on``、``asgi-lifespan``），对方就会一直等
-    ``lifespan.startup.complete``。期望的行为是回一条 ``complete``（或者明确地
-    ``failed``），而不是沉默。
+    上一轮这里是一条【毛病】——它对 lifespan 的 scope 一言不发，于是任何会驱动 lifespan
+    的东西（Starlette 的 ``TestClient``、``uvicorn --lifespan on``、``asgi-lifespan``）都会
+    一直等 ``startup.complete``。现在它回应答，而**不**把消息转发下去：应用单元的启动与
+    回收归 Canary 的生命周期管，不该由 ASGI 的 lifespan 再来一遍。
     """
     sent: list[dict] = []
+    incoming = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
 
     async def receive() -> dict:
-        return {"type": "lifespan.startup"}
+        return next(incoming)
 
     async def send(message: dict) -> None:
         sent.append(message)
 
     async def app(scope, receive, send) -> None:
-        raise AssertionError("不该被调用")
+        raise AssertionError("lifespan 不该被转发给子应用")
 
-    table = asgi.dispatch({"/": app})
+    table = dispatch({"/": app})
     await asyncio.wait_for(table({"type": "lifespan"}, receive, send), timeout=2)
-    assert sent == []  # 期望: [{"type": "lifespan.startup.complete"}]
+    assert sent == [
+        {"type": "lifespan.startup.complete"},
+        {"type": "lifespan.shutdown.complete"},
+    ]
 
 
 async def test_dispatch_refuses_an_unmatched_websocket() -> None:
@@ -458,7 +472,7 @@ async def test_dispatch_refuses_an_unmatched_websocket() -> None:
     async def send(message: dict) -> None:
         sent.append(message)
 
-    table = asgi.dispatch({"/ws": lambda *_: None})
+    table = dispatch({"/ws": lambda *_: None})
     await table({"type": "websocket", "path": "/other"}, None, send)
     assert sent == [{"type": "websocket.close", "code": 1008}]
 

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from canary_framework import Canary, dep
-from canary_framework.asgi.fastapi import Router, get
+from canary_framework.web.asgi.app import Router, get
 from pydantic import BaseModel
 
 from shop.catalog import Catalog
@@ -61,7 +61,7 @@ class PricingRules(Canary):
         )
 
 
-class PricingApi(Router, prefix="/pricing", tags=["定价"]):
+class PricingApi(Router, prefix="/v2/pricing"):
     """``/pricing/{sku}``"""
 
     rules = dep(PricingRules)

@@ -2,59 +2,54 @@
 
 老路由怎么拿到图上的单元。
 
-``mount()`` 管的是**路由单元**：它把一张图上的路由挂到你的应用上。但迁移期还有一堆老
-路由没改——它们是普通的 FastAPI 函数，用 ``Depends``，而它们也要用到已经迁过来的业务
-单元。这中间需要一座桥，而桥不该是框架的事：它只有三行，而且形状由你的老代码决定。
+``mount()`` 那一套没有了——框架不再包装 FastAPI，所以"把路由单元挂到你的应用上"这件事也
+不存在了。迁移靠的是**协议层的兼容**：我们的服务器服务任何 ASGI 应用，我们的应用单元也能
+被任何 ASGI 服务器服务。于是老应用一行不改就能换服务器，新模块作为另一个 ASGI 应用并排
+站着（见 ``shop/server.py``）。
 
-这就是 ``library`` 在 0.10 时期的 ``wiring.py`` 做的事。那个文件在 ``library`` 里已经
-不需要了（它整个换成了路由单元），但**迁移期**需要它——两种写法同时在一个应用里跑，
-正是迁移的定义。
-
-``use(Cls)`` 是一个 FastAPI 依赖::
+剩下的问题只有一个：老路由（普通 FastAPI 函数 + ``Depends``）要用迁过来的业务单元。这就是
+这座桥——``app.state.graph`` 加一个 ``Depends``，三行::
 
     Catalogue = Annotated[Catalog, use(Catalog)]
 
     @router.get("/v1/stock/{sku}")
     async def stock(sku: str, catalogue: Catalogue) -> dict:
         return catalogue.require(sku).view()
+
+``library`` 与 ``relay`` 两个场景里也各有一座同样形状的桥——三个场景写了三遍，这件事记在
+README 里。
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from canary_framework import Canary
 from canary_framework.test import unit as lookup
-from fastapi import Depends
-
-_root: Canary | None = None
+from fastapi import Depends, FastAPI, Request
 
 
-def bind(root: Canary) -> None:
-    """Remember the running graph —— 在 lifespan 里调用。"""
-    global _root
-    _root = root
+def attach(app: FastAPI, root: Canary) -> None:
+    """Remember the running graph on this application."""
+    app.state.graph = root
 
 
-def unbind() -> None:
-    """Forget it again —— 图停了之后，老路由也该拿不到单元。"""
-    global _root
-    _root = None
+async def graph(request: Request) -> Canary:
+    """The graph this application was attached to."""
+    root = getattr(request.app.state, "graph", None)
+    if root is None:
+        raise RuntimeError("这个 FastAPI 应用还没有挂上图")
+    return root
 
 
-def use(cls: type[Canary]) -> Any:
-    """A FastAPI dependency that resolves *cls* from the running graph.
+Graph = Annotated[Canary, Depends(graph)]
 
-    从正在运行的那张图里按类型取单元。图没启动时直接报错，而不是返回一个半死的对象。
 
-    ``canary_framework.test.unit`` 在这里不是"测试辅助"——它就是"按类型取回单元"，
-    迁移期的桥正需要这一个动作。日常代码仍然应当声明依赖（``dep(...)``），所以这个函数
-    只该出现在老路由里。
-    """
+def use[T: Canary](cls: type[T]) -> Any:
+    """A FastAPI dependency that resolves *cls* from the running graph."""
 
-    def resolve() -> Canary:
-        if _root is None:
-            raise RuntimeError("图还没启动：lifespan 之外没有单元可取")
-        return lookup(_root, cls)
+    # async def：同步的依赖函数会被 FastAPI 放进线程池，每个请求多两次线程切换。
+    async def resolve(root: Graph) -> T:
+        return lookup(root, cls)
 
     return Depends(resolve)

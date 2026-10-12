@@ -74,7 +74,7 @@ async def drain(pipe) -> None:
 async def test_both_stacks_answer_the_same_script() -> None:
     """同一串请求，两层的状态码与响应体逐条相同。"""
     theirs = await answers_of("fastapi")
-    ours = await answers_of("web")
+    ours = await answers_of("canary")
 
     differences = [
         (step, left, right)
@@ -82,7 +82,7 @@ async def test_both_stacks_answer_the_same_script() -> None:
         if left != right
     ]
     assert not differences, "\n".join(
-        f"{step}\n  fastapi: {left}\n  web:     {right}" for step, left, right in differences
+        f"{step}\n  fastapi: {left}\n  canary:  {right}" for step, left, right in differences
     )
 
 
@@ -112,6 +112,6 @@ async def test_the_two_layers_say_no_the_same_way() -> None:
                     (closed.status_code, closed.headers.get("retry-after")),
                     (health.status_code, health.json()),
                 ]
-    assert seen["fastapi"] == seen["web"]
-    assert seen["web"][2] == (503, "5")
-    assert seen["web"][3] == (503, {"status": "draining"})
+    assert seen["fastapi"] == seen["canary"]
+    assert seen["canary"][2] == (503, "5")
+    assert seen["canary"][3] == (503, {"status": "draining"})

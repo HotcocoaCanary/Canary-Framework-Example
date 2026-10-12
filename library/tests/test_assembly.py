@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import asyncio
 
-from canary_framework import deps_of, init, scope_of
+from canary_framework import init, scope_of
 from canary_framework.test import unit
 
+from app.api import root_unit
 from app.infra.ai import ChatModel, EmbeddingModel
 from app.infra.db import Database
 from app.module.catalog.service import CatalogService
@@ -56,37 +57,24 @@ EXPECTED_PATHS = {
 # --- 路由表：依赖图的一部分 -------------------------------------------------
 
 
-async def test_prefixes_add_up_along_the_dependency_edges(root):
-    """``Api`` 写 ``/api``，各模块的路由单元只写自己那一段，挂在哪儿由谁依赖它决定。
+async def test_prefixes_add_up_along_the_dependency_edges(stack, root, app):
+    """两层 HTTP 注册出**同一张路径表**——"换一层 HTTP 不影响对外形状"的那条断言。
 
-    两层 HTTP 注册出**同一张路径表**——这是"换一层 HTTP 不影响对外形状"的那条断言。
+    canary 层的前缀逐层叠加（``Api`` 写 ``/api``，模块只写自己那一段）；fastapi 层是
+    ``APIRouter(prefix=...)`` 一层层 include。两种写法，同一张表。
     """
-    assert paths_of(root) == EXPECTED_PATHS
+    assert paths_of(stack, root, app) == EXPECTED_PATHS
 
 
 # --- 依赖图：Canary 那一侧 -------------------------------------------------
 
 
-def test_the_route_tree_is_the_dependency_graph(layer):
-    """应用依赖 ``Api``，``Api`` 依赖各模块的路由单元，路由单元依赖自己的 service。"""
-    assert set(deps_of(layer.LibraryApi)) == {layer.Api}
-    assert set(deps_of(layer.Api)) == {
-        layer.SystemApi,
-        layer.CatalogApi,
-        layer.ReaderApi,
-        layer.CirculationApi,
-        layer.RagApi,
-        layer.AssistantApi,
-    }
-    assert set(deps_of(layer.CatalogApi)) == {CatalogService}
-
-
-def test_dependencies_start_before_their_dependents(layer):
+def test_dependencies_start_before_their_dependents(stack):
     """推进沿依赖向下：一个单元进入某阶段之前，它的依赖已经完成该阶段。"""
     order: list[type] = []
 
     async def run() -> None:
-        root = layer.LibraryApi()
+        root = root_unit(stack)()
         await root.init()
         # 台账记录的就是进入顺序
         order.extend(type(u) for u in scope_of(root).entered(init).values())
@@ -95,8 +83,7 @@ def test_dependencies_start_before_their_dependents(layer):
     assert order.index(AppConfig) < order.index(Database)
     assert order.index(Database) < order.index(CatalogService)
     assert order.index(BookRepository) < order.index(CatalogService)
-    assert order.index(CatalogService) < order.index(layer.Api)
-    assert order[-1] is layer.LibraryApi, "根单元最后进入——它依赖所有人"
+    assert order[-1] is root_unit(stack), "根单元最后进入——它依赖所有人"
 
 
 async def test_shared_units_are_singletons(root):
@@ -112,7 +99,7 @@ async def test_one_config_instance_is_shared_by_the_whole_graph(root):
     shared = unit(root, AppConfig)
     assert unit(root, EmbeddingModel).config is shared
     assert unit(root, ChatModel).config is shared
-    assert root.api.system.config is shared  # SystemApi —— 两层各有一个类，从实例走
+    assert unit(root, CatalogService).database.config is shared
 
 
 async def test_start_hooks_wired_the_infrastructure(root):
@@ -139,16 +126,12 @@ async def test_the_attribute_name_is_the_applications_choice(root):
 # --- 接口方法就是绑定方法 ---------------------------------------------------
 
 
-async def test_an_endpoint_answers_from_the_unit_in_the_graph(client, root):
-    """接口是路由单元的绑定方法，用的就是图上那一个实例的依赖。"""
+async def test_an_endpoint_answers_from_the_units_in_the_graph(client, root):
+    """``/api/health`` 报的就是图上**实际**装的那几个实现——两层都是。"""
     body = (await client.get("/api/health")).json()["data"]
-    assert body == root.api.system.report()
-
-
-async def test_an_endpoint_can_be_called_without_http(root):
-    """路由单元是普通单元，接口方法是普通方法——不经 HTTP 也能调。"""
-    answer = await root.api.system.health()
-    assert answer.data["status"] == "ok"
+    assert body["dialect"] == unit(root, Database).dialect
+    assert body["embedding_model"] == type(unit(root, EmbeddingModel)).__name__
+    assert body["storage"] == unit(root, AppConfig).storage
 
 
 async def test_health_reports_the_implementations_actually_in_the_graph(client):
@@ -162,11 +145,11 @@ async def test_health_reports_the_implementations_actually_in_the_graph(client):
     }
 
 
-def test_each_app_gets_its_own_graph(layer):
+def test_each_app_gets_its_own_graph(stack):
     """两个各自构造的根是两张互不相干的图——作用域即是图。"""
 
     async def run() -> tuple[object, object]:
-        a, b = layer.LibraryApi(), layer.LibraryApi()
+        a, b = root_unit(stack)(), root_unit(stack)()
         await a.init()
         await b.init()
         return scope_of(a), scope_of(b)

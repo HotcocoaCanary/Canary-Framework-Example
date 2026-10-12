@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from canary_framework import dep
-from canary_framework.asgi.fastapi import Router, delete, get, post
+from typing import Annotated
 
+from fastapi import APIRouter
+
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.loan.schema import (
     BorrowRequest,
@@ -16,46 +18,55 @@ from app.module.loan.schema import (
 )
 from app.module.loan.service import CirculationService
 
+router = APIRouter(prefix="/circulation", tags=["借还流通"])
 
-class CirculationApi(Router, prefix="/circulation", tags=["借还流通"]):
-    circulation = dep(CirculationService)
+Circulation = Annotated[CirculationService, use(CirculationService)]
 
-    @post("/borrow")
-    async def borrow(self, body: BorrowRequest) -> R[LoanResponse]:
-        return R.ok(await self.circulation.borrow(body))
 
-    @post("/return")
-    async def return_copy(self, body: ReturnRequest) -> R[ReturnReceipt]:
-        return R.ok(await self.circulation.return_copy(body))
+@router.post("/borrow")
+async def borrow(body: BorrowRequest, circulation: Circulation) -> R[LoanResponse]:
+    return R.ok(await circulation.borrow(body))
 
-    @post("/loans/{loan_id}/renew")
-    async def renew(self, loan_id: str) -> R[LoanResponse]:
-        return R.ok(await self.circulation.renew(loan_id))
 
-    @get("/loans/{loan_id}")
-    async def get_loan(self, loan_id: str) -> R[LoanResponse]:
-        return R.ok(await self.circulation.get_loan(loan_id))
+@router.post("/return")
+async def return_copy(body: ReturnRequest, circulation: Circulation) -> R[ReturnReceipt]:
+    return R.ok(await circulation.return_copy(body))
 
-    @get("/readers/{reader_id}/loans")
-    async def reader_loans(
-        self, reader_id: str, page: int = 1, size: int = 20
-    ) -> PageR[LoanResponse]:
-        return PageR.ok(await self.circulation.reader_loans(reader_id, page=page, size=size))
 
-    @get("/overdue")
-    async def overdue(self, page: int = 1, size: int = 20) -> PageR[LoanResponse]:
-        return PageR.ok(await self.circulation.overdue_loans(page=page, size=size))
+@router.post("/loans/{loan_id}/renew")
+async def renew(loan_id: str, circulation: Circulation) -> R[LoanResponse]:
+    return R.ok(await circulation.renew(loan_id))
 
-    @post("/reservations")
-    async def reserve(self, body: ReserveRequest) -> R[ReservationResponse]:
-        return R.ok(await self.circulation.reserve(body))
 
-    @delete("/reservations/{reservation_id}")
-    async def cancel_reservation(self, reservation_id: str) -> R[str]:
-        return R.ok(await self.circulation.cancel_reservation(reservation_id))
+@router.get("/loans/{loan_id}")
+async def get_loan(loan_id: str, circulation: Circulation) -> R[LoanResponse]:
+    return R.ok(await circulation.get_loan(loan_id))
 
-    @get("/readers/{reader_id}/reservations")
-    async def reader_reservations(
-        self, reader_id: str, page: int = 1, size: int = 20
-    ) -> PageR[ReservationResponse]:
-        return PageR.ok(await self.circulation.reader_reservations(reader_id, page=page, size=size))
+
+@router.get("/readers/{reader_id}/loans")
+async def reader_loans(
+    reader_id: str, circulation: Circulation, page: int = 1, size: int = 20
+) -> PageR[LoanResponse]:
+    return PageR.ok(await circulation.reader_loans(reader_id, page=page, size=size))
+
+
+@router.get("/overdue")
+async def overdue(circulation: Circulation, page: int = 1, size: int = 20) -> PageR[LoanResponse]:
+    return PageR.ok(await circulation.overdue_loans(page=page, size=size))
+
+
+@router.post("/reservations")
+async def reserve(body: ReserveRequest, circulation: Circulation) -> R[ReservationResponse]:
+    return R.ok(await circulation.reserve(body))
+
+
+@router.delete("/reservations/{reservation_id}")
+async def cancel_reservation(reservation_id: str, circulation: Circulation) -> R[str]:
+    return R.ok(await circulation.cancel_reservation(reservation_id))
+
+
+@router.get("/readers/{reader_id}/reservations")
+async def reader_reservations(
+    reader_id: str, circulation: Circulation, page: int = 1, size: int = 20
+) -> PageR[ReservationResponse]:
+    return PageR.ok(await circulation.reader_reservations(reader_id, page=page, size=size))

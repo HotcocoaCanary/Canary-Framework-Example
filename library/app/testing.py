@@ -10,16 +10,44 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
+from typing import Any
 
-from canary_framework import asgi
+from canary_framework import Canary
+from canary_framework.test import running
+from canary_framework.web.asgi import Application
+from canary_framework.web.asgi.server import Server
 
-from app.api import gateway
+from app.api import gateway, root_unit
+from app.api import stack as stack_module
 from app.infra.db import Database
 from app.module.db.models import Loan, utcnow
 
 
-def listener(stack: str) -> type[asgi.Server]:
+@asynccontextmanager
+async def running_stack(
+    name: str, doubles: dict[Any, Any] | None = None
+) -> AsyncIterator[tuple[Canary, Application]]:
+    """Start one HTTP layer and yield ``(graph root, ASGI application)``.
+
+    启动某一层，产出"图的根"与"ASGI 应用"两样东西。两层在这里的差别一眼能看见：
+
+    * canary 层：应用单元自己就是根，**也**就是那个 ASGI 应用；
+    * fastapi 层：根是 ``Services``（组合根单元），应用要用 ``create_app(root)`` 另外建，
+      并且要把图挂到它身上（见 ``app/api/fastapi/bridge.py``）。
+
+    没有服务器，也没有端口——两层都只是 ASGI 应用，``httpx.ASGITransport`` 直接打。
+    """
+    async with running(root_unit(name), doubles) as root:
+        if name == "canary":
+            yield root, root
+        else:
+            yield root, stack_module(name).create_app(root)
+
+
+def listener(stack: str) -> type[Server]:
     """A ``Gateway`` subclass of *stack* that lets the system pick the port.
 
     某一层 HTTP 的 ``Gateway`` 子类，端口交给系统分配。两个栈各有一个 ``Gateway``，因为
@@ -29,22 +57,22 @@ def listener(stack: str) -> type[asgi.Server]:
     return type(f"Test{base.__name__}", (base,), {"host": "127.0.0.1", "port": 0})
 
 
-def paths_of(api: asgi.App) -> set[str]:
+def paths_of(name: str, root: Canary, app: Any) -> set[str]:
     """Every path this HTTP layer registered.
 
-    这一层实际注册了哪些路径。两个栈的来源不一样，而这正是 ``asgi.web`` 的一个缺口：
+    这一层实际注册了哪些路径。两层的来源不一样，而这正是应用单元那边的一个缺口：
 
-    * FastAPI 版读 ``/openapi.json`` 的 ``paths``——公开、现成；
-    * web 版只能读 ``canary_framework.asgi.web.router.collect()``，它**不是公开 API**。
-      这个包不生成 OpenAPI，也没有别的办法问"你注册了哪些路径"。
+    * 原生 FastAPI：读 ``app.openapi()["paths"]``——公开、现成；
+    * 应用单元：只能读 ``canary_framework.web.asgi.app.router.collect()``，它**不是公开
+      API**（这个包不生成 OpenAPI，也没有别的办法问"你注册了哪些路径"）。
 
     两边返回同一个集合，所以路由表的等价性可以直接断言。
     """
-    if type(api).__module__.startswith("app.api.fastapi"):
-        return set(api.app.openapi()["paths"])
-    from canary_framework.asgi.web.router import collect
+    if name == "fastapi":
+        return set(app.openapi()["paths"])
+    from canary_framework.web.asgi.app.router import collect
 
-    return {path for path, _route, _call in collect(api)}
+    return {path for path, _route, _call in collect(root)}
 
 
 def payload(response):

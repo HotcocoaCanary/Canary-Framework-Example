@@ -150,8 +150,10 @@ async def test_restarting_keeps_the_ledger_and_rebuilds_the_queue(stack) -> None
         async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{pipe.server.port}") as client:
             first = (await client.post("/batches", json={"rows": rows(2)})).json()
             await settle(pipe, first["job_id"])
-        app_before = pipe.server.api.app
-        first_queue = pipe.fast.items if hasattr(pipe.fast, "items") else pipe.fast.queue.items
+        # 这一层服务的那个 ASGI 应用：@init 建一次就不动。两层取法不同——canary 层是
+        # "依赖即服务"（服务器上没有 app 属性），fastapi 层是 @init 里赋的 self.app。
+        app_before = getattr(pipe.server, "app", None) or pipe.server.api
+        first_queue = pipe.fast.queue.items
         await pipe.stop()
 
         assert pipe.fast.queue.closed is True
@@ -163,7 +165,7 @@ async def test_restarting_keeps_the_ledger_and_rebuilds_the_queue(stack) -> None
         assert pipe.gate.accepting is True           # @start 又跑了
         assert pipe.fast.queue.closed is False       # 队列是新建的
         assert pipe.fast.queue.items is not first_queue
-        assert pipe.server.api.app is app_before     # @init 没有再跑，应用还是那一个
+        assert (getattr(pipe.server, "app", None) or pipe.server.api) is app_before
         assert pipe.ledger.summary()["postings"] == 2  # 账还在
 
         async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{pipe.server.port}") as client:

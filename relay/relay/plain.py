@@ -1,8 +1,8 @@
 """Writing an HTTP response by hand, with no framework at all.
 
 手写 HTTP 响应。``/metrics`` 与 ``/ready`` 不值得为它们引入一个 web 框架：ASGI 应用就是
-一个三参数的协程函数，自己送两条消息就是一个响应。``asgi.App`` 只要求 ``self.app`` 是这样
-一个可调用对象——是 FastAPI 应用、是别的框架的应用、还是这样一个函数，框架不关心。
+一个三参数的协程函数，自己送两条消息就是一个响应。服务器单元只认这个协议——是 FastAPI
+应用、是我们的应用单元、还是这样一个函数，它都一样服务。
 """
 
 from __future__ import annotations

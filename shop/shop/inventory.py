@@ -2,12 +2,15 @@
 
 库存。两个仓库是两个单元，所以"调拨"这件事写起来就是两个依赖之间的事，不需要一张
 "仓库名 → 实例"的表。
+
+前缀里带着 ``/v2``：这个应用单元被 ``dispatch`` 挂在 ``/v2`` 下，而 ``dispatch`` 只转发、
+不改写路径，所以路由自己要包含它（见 ``shop/graph.py`` 的 ``V2Api.path``）。
 """
 
 from __future__ import annotations
 
 from canary_framework import dep
-from canary_framework.asgi.fastapi import Router, get, post
+from canary_framework.web.asgi.app import Router, get, post
 from pydantic import BaseModel
 
 from shop.catalog import Catalog
@@ -29,7 +32,7 @@ class StockView(BaseModel):
     on_hand: int
 
 
-class InventoryApi(Router, prefix="/inventory", tags=["库存"]):
+class InventoryApi(Router, prefix="/v2/inventory"):
     """``/inventory`` 与 ``/inventory/{sku}/move``"""
 
     catalog = dep(Catalog)

@@ -8,11 +8,6 @@
 from __future__ import annotations
 
 import pytest
-from canary_framework.test import running
-
-from relay.clock import Clock
-from relay.schema import Heartbeat
-from relay.settings import EdgeSettings
 
 
 async def test_heartbeat_registers_a_device(public) -> None:
@@ -97,20 +92,3 @@ async def test_without_a_server_there_is_no_dispatch(api_client) -> None:
     assert (await api_client.get("/metrics")).status_code == 404
 
 
-async def test_endpoint_methods_are_plain_bound_methods(layer, clock) -> None:
-    """路由单元仍是普通类：接口方法可以不经 HTTP 直接 await。
-
-    ``get`` / ``post`` 只打标记、不改造方法，所以这是最便宜的一层测试——没有 HTTP、
-    没有 JSON、没有服务器，只有对象。
-    """
-    doubles = {EdgeSettings: EdgeSettings(site_id="bare"), Clock: clock}
-    async with running(layer.PublicApi, doubles) as api:
-        view = await api.devices.heartbeat("pos-1", Heartbeat(kind="pos", metrics={"paper": 0.5}))
-        assert (view.device_id, view.status, view.heartbeats) == ("pos-1", "online", 1)
-
-        health = await api.health.health()
-        assert health["site"] == "bare"
-        assert health["devices"] == {"online": 1}
-
-        # 共享的两个单元就是同一个实例
-        assert api.devices.fleet is api.health.fleet

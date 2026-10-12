@@ -12,13 +12,15 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 from canary_framework import dep
 from canary_framework.test import running
 
-from app.api import NAMES, application
+from app.api import NAMES
+from app.testing import running_stack
 
 #: ``bk_01hq…`` 这类 id、条码、卡号，以及 ISO 时间戳：两次运行本来就不同，比对前抹掉。
 ID = re.compile(r"^[a-z]{2,6}_[0-9a-f]{12,}$")
@@ -46,7 +48,7 @@ SCRIPT: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/circulation/return", {"loan_id": "{loan}"}),
     ("GET", "/api/circulation/overdue", None),
     ("POST", "/api/rag/documents", {"title": "借阅规则", "text": "普通读者可借 5 本，借期 30 天。", "source": "手册"}),
-    ("POST", "/api/rag/search", {"query": "借期多久", "top_k": 3}),
+    ("GET", "/api/rag/search?q=借期多久&top_k=3", None),
     ("POST", "/api/assistant/ask", {"question": "普通读者能借几本书？"}),
     # 失败路径：两层的错误格式也必须一样
     ("GET", "/api/catalog/books/bk_does_not_exist", None),
@@ -114,24 +116,27 @@ async def play(client: httpx.AsyncClient) -> list[tuple[str, int, Any]]:
 
 async def test_both_stacks_answer_the_same_script() -> None:
     """同一串请求，两层的状态码与响应体逐条相同。"""
-    async with running(application("fastapi")) as fastapi_app, running(application("web")) as web_app:
-        fastapi_transport = httpx.ASGITransport(app=fastapi_app.app, raise_app_exceptions=False)
-        web_transport = httpx.ASGITransport(app=web_app.app, raise_app_exceptions=False)
+    async with (
+        running_stack("fastapi") as (_fr, fastapi_app),
+        running_stack("canary") as (_cr, canary_app),
+    ):
+        native = httpx.ASGITransport(app=fastapi_app, raise_app_exceptions=False)
+        ours = httpx.ASGITransport(app=canary_app, raise_app_exceptions=False)
         async with (
-            httpx.AsyncClient(transport=fastapi_transport, base_url="http://a") as a,
-            httpx.AsyncClient(transport=web_transport, base_url="http://b") as b,
+            httpx.AsyncClient(transport=native, base_url="http://a") as a,
+            httpx.AsyncClient(transport=ours, base_url="http://b") as b,
         ):
-            theirs = await play(a)
-            ours = await play(b)
+            native_answers = await play(a)
+            our_answers = await play(b)
 
-    assert len(theirs) == len(SCRIPT)
+    assert len(native_answers) == len(SCRIPT)
     differences = [
         (step, left, right)
-        for (step, *left), (_, *right) in zip(theirs, ours, strict=True)
+        for (step, *left), (_, *right) in zip(native_answers, our_answers, strict=True)
         if left != right
     ]
     assert not differences, "\n".join(
-        f"{step}\n  fastapi: {left}\n  web:     {right}" for step, left, right in differences
+        f"{step}\n  fastapi: {left}\n  canary:  {right}" for step, left, right in differences
     )
 
 
@@ -145,31 +150,50 @@ async def test_the_validation_error_bodies_differ_by_one_field() -> None:
     影响：拿 ``input`` 做提示的前端、按整条 ``detail`` 做快照断言的测试，换一层就得改。
     期望要么跟 FastAPI 一致，要么文档里明说这一条，而不是只给一个"看起来一样"的例子。
     """
-    async with running(application("fastapi")) as fastapi_app, running(application("web")) as web_app:
-        fastapi_transport = httpx.ASGITransport(app=fastapi_app.app, raise_app_exceptions=False)
-        web_transport = httpx.ASGITransport(app=web_app.app, raise_app_exceptions=False)
+    async with (
+        running_stack("fastapi") as (_fr, fastapi_app),
+        running_stack("canary") as (_cr, canary_app),
+    ):
+        native = httpx.ASGITransport(app=fastapi_app, raise_app_exceptions=False)
+        ours = httpx.ASGITransport(app=canary_app, raise_app_exceptions=False)
         async with (
-            httpx.AsyncClient(transport=fastapi_transport, base_url="http://a") as a,
-            httpx.AsyncClient(transport=web_transport, base_url="http://b") as b,
+            httpx.AsyncClient(transport=native, base_url="http://a") as a,
+            httpx.AsyncClient(transport=ours, base_url="http://b") as b,
         ):
             broken = {"title": "缺作者"}
-            theirs = (await a.post("/api/catalog/books", json=broken)).json()["detail"][0]
-            ours = (await b.post("/api/catalog/books", json=broken)).json()["detail"][0]
+            native_error = (await a.post("/api/catalog/books", json=broken)).json()["detail"][0]
+            our_error = (await b.post("/api/catalog/books", json=broken)).json()["detail"][0]
 
-    assert set(theirs) == {"type", "loc", "msg", "input"}
-    assert set(ours) == {"type", "loc", "msg"}
-    assert {key: theirs[key] for key in ours} == ours  # 其余三项一模一样
+    assert set(native_error) == {"type", "loc", "msg", "input"}
+    assert set(our_error) == {"type", "loc", "msg"}
+    assert {key: native_error[key] for key in our_error} == our_error  # 其余三项一模一样
 
 
 # -- 同步接口方法：两层都放进线程池 ------------------------------------------
 
 
 def _sync_probe(stack: str):
-    """An app with one **synchronous** endpoint that blocks, and one ``async def`` one."""
+    """An ASGI application with one **synchronous** blocking endpoint and one ``async`` one.
+
+    两层各写一遍：一边是原生 FastAPI 的模块级函数，一边是应用单元的方法。
+    """
     if stack == "fastapi":
-        from canary_framework.asgi.fastapi import App, Router, get
-    else:
-        from canary_framework.asgi.web import App, Router, get
+        from fastapi import FastAPI
+
+        app = FastAPI()
+
+        @app.get("/probe/slow")
+        def slow() -> dict:
+            time.sleep(0.3)
+            return {"ok": True}
+
+        @app.get("/probe/fast")
+        async def fast() -> dict:
+            return {"ok": True}
+
+        return app
+
+    from canary_framework.web.asgi.app import App, Router, get
 
     class Probe(Router, prefix="/probe"):
         @get("/slow")
@@ -186,44 +210,53 @@ def _sync_probe(stack: str):
 
 async def _four_at_once(stack: str) -> float:
     """How long four concurrent calls to the blocking endpoint take."""
-    app_class = _sync_probe(stack)
-    async with running(app_class) as api:
-        transport = httpx.ASGITransport(app=api.app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            began = time.monotonic()
-            await asyncio.gather(*(client.get("/probe/slow") for _ in range(4)))
-            return time.monotonic() - began
+    probe = _sync_probe(stack)
+    async with _probe_app(stack, probe) as app, httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        began = time.monotonic()
+        await asyncio.gather(*(client.get("/probe/slow") for _ in range(4)))
+        return time.monotonic() - began
+
+
+@asynccontextmanager
+async def _probe_app(stack: str, probe):
+    """A started probe application —— 应用单元要先启动，FastAPI 应用拿来就用。"""
+    if stack == "fastapi":
+        yield probe
+        return
+    async with running(probe) as unit_app:
+        yield unit_app
 
 
 async def _finish_order(stack: str) -> list[str]:
     """Which answers come back first when a blocking call is in flight."""
-    app_class = _sync_probe(stack)
+    probe = _sync_probe(stack)
     done: list[str] = []
-    async with running(app_class) as api:
-        transport = httpx.ASGITransport(app=api.app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with _probe_app(stack, probe) as app, httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
 
-            async def hit(path: str) -> None:
-                await client.get(path)
-                done.append(path)
+        async def hit(path: str) -> None:
+            await client.get(path)
+            done.append(path)
 
-            slow = asyncio.create_task(hit("/probe/slow"))
-            await asyncio.sleep(0.05)  # 事件循环没被占住的话，这一句会按时回来
-            await hit("/probe/fast")
-            await slow
+        slow = asyncio.create_task(hit("/probe/slow"))
+        await asyncio.sleep(0.05)  # 事件循环没被占住的话，这一句会按时回来
+        await hit("/probe/fast")
+        await slow
     return done
 
 
 async def test_a_synchronous_endpoint_runs_in_a_thread_on_both_layers() -> None:
     """同步的接口方法在两层上都进线程池：四个并发各阻塞 0.3s，总共还是 ~0.3s。
 
-    上一轮这里是一条【差异】——``asgi.web`` 当时直接在事件循环里调同步方法，于是同步接口
-    里的阻塞调用（老的同步 DB 驱动、``requests``、文件 IO）会卡住**整个进程**，连
-    ``/health`` 都答不出来，而迁移前在 FastAPI 上同样的代码只是慢。现在两层一致：普通
-    ``def`` 的接口走 ``asyncio.to_thread``，``async def`` 的仍在事件循环里。
+    FastAPI 一直是这样（普通 ``def`` 进线程池）；应用单元那层是这一轮才改的——之前它直接
+    在事件循环里调同步方法，于是同步接口里的阻塞调用（老的同步 DB 驱动、``requests``、
+    文件 IO）会卡住**整个进程**，连 ``/health`` 都答不出来。
 
-    代价也一样：线程池里的方法与事件循环并发运行，所以读写单元上的状态要自己保证线程
-    安全——本项目的接口方法都是 ``async def``，这一条不碰。
+    代价两层一样：线程池里的方法与事件循环并发运行，读写单元上的状态要自己保证线程安全
+    ——本项目的接口方法都是 ``async def``，这一条不碰。
     """
     for name in NAMES:
         elapsed = await _four_at_once(name)

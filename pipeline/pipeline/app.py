@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import logging
 
-from canary_framework import Canary, asgi, dep, enter, init, leave
+from canary_framework import Canary, dep, enter, init, leave
+from canary_framework.web.asgi import Application
+from canary_framework.web.asgi.server import Server
 
 from pipeline.gate import Gate
 from pipeline.jobs import JobBook
@@ -44,12 +46,12 @@ from pipeline.settings import PipelineSettings
 logger = logging.getLogger("pipeline")
 
 
-class IngestServer(asgi.Server, access_log=False):
+class IngestServer(Server, access_log=False):
     """The one port this process listens on.
 
     唯一的端口。``api`` 由各栈的子类给出（见 ``pipeline/http/``）——``dep()`` 是写在类上的
-    声明，所以"听哪一层"只能由类决定。基类里不写它的默认值：依赖按类型收集，不像钩子那样
-    按属性名覆盖，基类写了那条边就也成立。
+    声明，所以"听哪一层"只能由类决定。基类不给默认值是因为这里没有合理的默认：两层并列，
+    而且写死任一层会和 ``pipeline.http.*`` 形成循环导入。
 
     ``access_log=False`` 是类参数，原样传给 ``uvicorn.Config``——压测时访问日志会严重干扰
     结果。
@@ -57,8 +59,9 @@ class IngestServer(asgi.Server, access_log=False):
 
     config = dep(PipelineSettings)
 
-    #: 这一层的接入应用，由子类用 ``dep(...)`` 给出。
-    api: asgi.App
+    #: 这一层的接入应用：canary 层用 ``dep(IngestApp)``，fastapi 层在 ``@init`` 里赋
+    #: ``self.app``（见 ``pipeline/http/``）。
+    api: Application
 
     @init
     def configure(self) -> None:

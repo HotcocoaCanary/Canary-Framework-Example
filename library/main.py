@@ -1,19 +1,18 @@
-"""智能图书馆管理系统 — 入口。
+"""智能图书馆管理系统 — 入口（我们的服务器单元监听）。
 
 同一份业务，两层 HTTP，用 ``--stack`` 挑一层::
 
-    python main.py                          # fastapi 版，:8010
-    python main.py --stack web              # web 版，:8011
-    python main.py --stack web --port 9000  # 自己指定端口
+    python main.py                          # canary 版（路由与应用都是单元），:8010
+    python main.py --stack fastapi          # 原生 FastAPI 版，:8110
+    python main.py --stack canary --port 9000
 
-``Gateway`` 是监听的单元：它依赖某一层的 ``LibraryApi``，于是在 ``@start`` 里绑定端口并
-服务它，在 ``@stop`` 里先停止监听，再由框架逆序回收数据库等依赖。进程的生命周期归
-Canary，uvicorn 只是被 ``Gateway`` 驱动的服务器——所以没有 ``uvicorn main:app``，信号也
-由这里自己接。
+``Gateway`` 是监听的单元：它在 ``@start`` 里绑定端口并服务一个 ASGI 应用，在 ``@stop`` 里
+先停止监听，再由框架逆序回收数据库等依赖。进程的生命周期归 Canary——所以信号由这里自己接。
 
-``--stack`` 不能做成运行期的参数塞给同一个 ``Gateway``：``dep()`` 是写在类上的声明，图是
-静态的。所以两个栈各有一个 ``Gateway``（见 ``app/api/``），这里只是按名字取一个。
-``--port`` 不同——它是普通类属性，赋值即可，只要在 ``@start`` 之前。
+两层的区别只在"服务什么"：canary 版服务的是一个应用单元，fastapi 版在 ``@init`` 里把一个
+FastAPI 对象赋给 ``self.app``。服务器只认 ASGI 协议，不问出处。
+
+想让 uvicorn 直接跑应用单元（不要我们的服务器单元），见 ``asgi.py``。
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from app.api import NAMES, gateway
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="图书馆 API（两层 HTTP 任选一层）")
-    parser.add_argument("--stack", choices=NAMES, default="fastapi", help="HTTP 层（默认 fastapi）")
+    parser.add_argument("--stack", choices=NAMES, default="canary", help="HTTP 层（默认 canary）")
     parser.add_argument("--port", type=int, default=None, help="监听端口（默认取该层的 port）")
     parser.add_argument("--host", default=None, help="监听地址")
     return parser.parse_args()
