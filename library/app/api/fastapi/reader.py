@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter
 
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.reader.schema import (
     CreateReaderRequest,
@@ -14,11 +15,10 @@ from app.module.reader.schema import (
     UpdateReaderRequest,
 )
 from app.module.reader.service import ReaderService
-from app.wiring import unit
 
-router = APIRouter(prefix="/api/readers", tags=["读者"])
+router = APIRouter(prefix="/readers", tags=["读者"])
 
-Readers = Annotated[ReaderService, unit(ReaderService)]
+Readers = Annotated[ReaderService, use(ReaderService)]
 
 
 @router.post("/")
@@ -57,7 +57,5 @@ async def delete_reader(reader_id: str, readers: Readers) -> R[str]:
 
 
 @router.post("/{reader_id}/fines/payment")
-async def pay_fine(
-    reader_id: str, body: PayFineRequest, readers: Readers
-) -> R[ReaderResponse]:
+async def pay_fine(reader_id: str, body: PayFineRequest, readers: Readers) -> R[ReaderResponse]:
     return R.ok(await readers.pay_fine(reader_id, body))

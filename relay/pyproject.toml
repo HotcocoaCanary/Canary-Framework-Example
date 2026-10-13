@@ -1,0 +1,42 @@
+[project]
+name = "canary-relay"
+version = "1.0.0"
+description = "场景三：门店边缘中继 —— 一个进程两个端口、一个端口多个应用（HTTP + WebSocket + /metrics）"
+requires-python = ">=3.12"
+dependencies = [
+    "canary-framework[config,web]>=1.2.0,<2",
+    # 第二层 HTTP 是一个原生 FastAPI 应用（由我们的 Server 服务）
+    "fastapi>=0.121",
+    # uvicorn 自己不带 WebSocket 实现，canary-framework[server] 也只要 uvicorn；
+    # 要让 ws:// 真的握手成功，得自己加一个。
+    "websockets>=13.0",
+    "pydantic>=2.13.4",
+]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["relay"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]

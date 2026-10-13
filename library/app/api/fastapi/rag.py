@@ -6,14 +6,14 @@ from typing import Annotated
 
 from fastapi import APIRouter
 
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.rag.schema import DocResponse, IndexTextRequest, SearchResponse
 from app.module.rag.service import RagService
-from app.wiring import unit
 
-router = APIRouter(prefix="/api/rag", tags=["知识库"])
+router = APIRouter(prefix="/rag", tags=["知识库"])
 
-Rag = Annotated[RagService, unit(RagService)]
+Rag = Annotated[RagService, use(RagService)]
 
 
 @router.post("/documents")

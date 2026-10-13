@@ -1,28 +1,41 @@
 # 场景一：智能图书馆管理系统
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.1**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.2**
 搭的图书馆管理系统：书目与馆藏、读者、借还流通与预约队列，外加一个基于 RAG 的
 智能馆员助手。
 
-**职责是分开的。** 0.10.0 删掉了 `canary_framework.web`，框架的定位收回到依赖注入与
-生命周期本身，于是这两件事分给了两个库：
+**同一份业务，两层 HTTP。** 这一轮两层对比的是**两种写法**，而不是两个我们自己的包：
 
-| | 负责什么 |
-|---|---|
-| **Canary** | 单元之间的依赖、构造顺序、启动与回收 |
-| **FastAPI** | 路由、请求校验、状态码、OpenAPI 与 `/docs` |
+| 这一层 | 怎么写 | 它带来什么 |
+|---|---|---|
+| [`app/api/canary/`](app/api/canary) | 路由与应用都是单元（`canary_framework.web.asgi.app`） | 应用单元自己就是一个 ASGI 应用，service 靠 `dep()` 声明；只依赖 pydantic |
+| [`app/api/fastapi/`](app/api/fastapi) | 原生 FastAPI：模块级 `APIRouter` + `Depends` | 自带的 OpenAPI、`/docs`、`tags`、FastAPI 生态 |
 
-两者的接触面只有 [`app/wiring.py`](app/wiring.py) 一个文件，三件事：lifespan 对接、
-按类型取单元、领域异常落地。分开之后每一侧都是该领域里最普通的写法——不需要为了用
-框架而学一套只在这个框架里成立的 web 约定。
+第二层是**原生的** FastAPI 应用，由我们的 `Server` 服务。框架不再包装任何 web 框架——旧的
+`canary_framework.asgi.fastapi` 与它的 `mount()` 整个没有了——因为 ASGI 的意义就是两边各守
+协议即可任意组合。所以 `fastapi` 是本项目自己的依赖，不再从框架的 extra 里来；框架那边只要
+`canary-framework[config,web]`（`[web]` = `[app]` 的 pydantic + `[server]` 的 uvicorn）。
+
+业务代码（`app/module/*/service.py`、`app/module/db/`、`app/infra/`、`config.py`）**只有
+一份**，两层都不碰它。两层对外的路径、状态码、响应体一致，所以同一套行为测试对两层各跑
+一遍（[`tests/conftest.py`](tests/conftest.py)），另有一条脚本逐条比对两边的答案
+（[`tests/test_parity.py`](tests/test_parity.py)）。
 
 ## 快速开始
 
 ```bash
 uv sync
-uv run pytest              # 101 个测试，零外部依赖
-uv run python main.py      # http://127.0.0.1:8010/docs
+uv run pytest                                   # 219 个测试（行为测试跑两遍），零外部依赖
+
+uv run python main.py                           # canary 版（路由与应用都是单元），:8010
+uv run python main.py --stack fastapi           # 原生 FastAPI 版，:8110，带 /docs
+uv run python main.py --stack canary --port 9000
+uv run uvicorn asgi:app --port 8012 --reload    # 应用单元交给原生 uvicorn，见 asgi.py
 ```
+
+两层默认端口不同（8010 / 8110），所以可以同时起着、用同一个脚本压。两个 `Gateway` 都带
+`access_log=False`（`Server` 的类参数原样传给 `uvicorn.Config`），压测时日志不会
+干扰结果。
 
 默认配置是**零外部依赖**的：SQLite 内存库 + 离线确定性 embedding / chat 实现。
 接真实的 PostgreSQL + pgvector 与 LLM，只需改 `.env`（见 `.env.example`）：
@@ -42,11 +55,18 @@ uv run alembic upgrade head
 ## 架构
 
 ```
-main.py                    uvicorn 跑 app/api.py 里的 ASGI 应用
+main.py                    --stack {canary,fastapi} --port N：按名字取一个 Gateway 起进程
+asgi.py                    app = LibraryApi()：给原生 ASGI 服务器的入口（uvicorn asgi:app）
 app/
-  api.py                   create_app()：FastAPI 实例 + 挂载各模块 router
-  wiring.py                ← Canary 与 FastAPI 的全部接触面（lifespan / provide / 异常）
-  composition.py           LibraryApi —— 组合根，依赖每个 service，但不认识 HTTP
+  api/
+    __init__.py            两层的注册表：stack / root_unit / gateway，和"三种组合"那张表
+    canary/                ← 第一层 HTTP：路由与应用都是单元
+      __init__.py          SystemApi + Api + LibraryApi（App）+ Gateway（Server，:8010）
+      catalog.py ...       五个模块的路由单元
+    fastapi/               ← 第二层 HTTP：原生 FastAPI 应用，由我们的 Server 服务
+      __init__.py          Services（组合根单元）+ create_app() + Gateway（Server，:8110）
+      bridge.py            attach(app, root) 把图挂上去；use(Cls) 是按类型取单元的 Depends
+      catalog.py ...       五个模块的 APIRouter，外加 system.py
   module/
     catalog/    /api/catalog      书目与馆藏副本
     reader/     /api/readers      读者、等级、罚金
@@ -62,21 +82,63 @@ app/
     repository/            无状态查询对象——session 由调用方传入
 ```
 
-每个模块是 `router.py`（FastAPI 路由）+ `service.py`（`Canary` 单元，业务规则）+
-`schema.py`（pydantic 请求/响应模型）。
+每个模块是 `service.py`（`Canary` 单元，业务规则）+ `schema.py`（pydantic 请求/响应
+模型）；路由不在模块里，而在 `app/api/<栈>/<模块>.py` —— 两层各一份，各自薄薄一层。
 
-### 四条值得说明的设计
+### 三种组合
 
-**handler 怎么拿到单元。** `wiring.py` 里的 `provide(Cls)` 是一个 FastAPI 依赖，
-从 lifespan 启动的那张图里按类型取实例：
+ASGI 的两侧各守协议即可任意组合，所以"应用"和"服务器"谁是我们的、谁是现成的，四个格子里
+这个项目占了三个：
+
+| 组合 | 怎么跑 |
+|---|---|
+| 我们的 app + 我们的 `Server` | `uv run python main.py --stack canary` |
+| 我们的 app + 原生 uvicorn | `uv run uvicorn asgi:app --port 8012` |
+| 原生 FastAPI + 我们的 `Server` | `uv run python main.py --stack fastapi` |
+
+第一种与第三种的区别只在"服务什么"：`Gateway` 服务的是 ASGI 应用，不问出处——canary 那边是
+它依赖的应用单元，fastapi 那边在 `@init` 里把一个 FastAPI 对象赋给 `self.app`。
+
+第二种能成立，是因为**应用单元自己就是一个 ASGI 应用**：`await app(scope, receive, send)`。
+`asgi.py` 里只有一行 `app = LibraryApi()`，这时驱动生命周期的是 uvicorn 的 lifespan 消息
+——启动时整张图按序 `init` / `start`，停止时逆序回收，启动失败则 `lifespan.startup.failed`。
+代价是一个进程一个应用一个端口，换来的是 `--reload` / `--workers` 这些照用。已经由 Canary
+启动的图收到 lifespan 消息只应答、不重复驱动，所以两种组合不会打架
+（[`tests/test_stack_canary.py`](tests/test_stack_canary.py) 里钉着）。
+
+### 五条值得说明的设计
+
+**接口怎么拿到单元。** 这是两层写法最实在的差别。路由单元自己声明依赖，接口方法是绑定
+方法，直接用 `self`：
 
 ```python
-Catalog = Annotated[CatalogService, unit(CatalogService)]
+class CatalogApi(Router, prefix="/catalog"):
+    catalog = dep(CatalogService)
+
+    @post("/books")
+    async def create_book(self, body: CreateBookRequest) -> R[BookResponse]:
+        return R.ok(await self.catalog.create_book(body))
+```
+
+原生 FastAPI 那一侧的接口是模块级的函数，不是单元的方法，所以"用哪个 service"写不成
+`dep(...)`，只能在请求时去图上取——这就是
+[`app/api/fastapi/bridge.py`](app/api/fastapi/bridge.py) 那座桥：`attach(app, root)` 把启动好
+的图记在 `app.state.graph` 上，`use(Cls)` 是一个 `Depends`，内部用
+`canary_framework.test.unit` 按类型把单元取回来：
+
+```python
+router = APIRouter(prefix="/catalog", tags=["书目与馆藏"])
+Catalog = Annotated[CatalogService, use(CatalogService)]
+
 
 @router.post("/books")
 async def create_book(body: CreateBookRequest, catalog: Catalog) -> R[BookResponse]:
     return R.ok(await catalog.create_book(body))
 ```
+
+图放在 `app.state` 上而不是模块级全局，于是一个进程里可以有多张图（测试里就是这样）。
+这一侧还多一个 `Services` 单元：它依赖每个 service，但不认识 HTTP——这一层没有应用单元替它
+拢住那张图，总得有人知道该启动谁。
 
 注意作用域的粒度是**一次运行**，不是一次请求：每个类型一个实例，这正是连接池该有的
 粒度。请求级的工作单元由 service 自己开。
@@ -86,9 +148,10 @@ service 用 `async with self.database.begin()` 包住整个用例。一次借书
 翻转 `BookCopy.status`、可能还要兑现 `Reservation`——这些必须同生共死。框架没有请求
 作用域，所以工作单元是显式的。
 
-**领域异常只在一处落地。** service 只 `raise`，不认识任何 HTTP 概念；
-`wiring.py::install_error_handlers` 用一个 `@app.exception_handler(DomainError)`
-把它翻成 `{code, data, msg}` 信封和对应状态码。这是这次重写里少数"代码变简单了"的
+**领域异常只在一处落地。** service 只 `raise`，不认识任何 HTTP 概念；每层的应用单元各有
+一处把它翻成 `{code, data, msg}` 信封和对应状态码——FastAPI 版是
+`app.add_exception_handler(DomainError, ...)`，canary 版是 `@error(DomainError)` 标记在应用
+单元上的一个方法。这是这次重写里少数"代码变简单了"的
 地方——0.9.x 的框架删掉 `@on_request_error` 之后，领域异常必须由每个 handler 自己用
 `await ok(...)` 接住，漏写一个就变成 500，只能靠代码评审兜底。
 
@@ -112,7 +175,9 @@ service 用 `async with self.database.begin()` 包住整个用例。一次借书
 | RAG | `POST/GET /api/rag/documents`、`POST /api/rag/books/{id}/index`、`GET /api/rag/search?q=` |
 | 助手 | `POST /api/assistant/ask`、`POST /api/assistant/sessions/{id}/ask`、`GET .../messages` |
 
-完整文档：启动后访问 `/docs`（Swagger UI）或 `/redoc`。
+完整文档：两版都有 `/openapi.json`。fastapi 版的是 FastAPI 自带的，另有 `/docs`（Swagger UI）
+与 `/redoc`；canary 版的是本项目照着应用单元公开的接口表（`App.endpoints`）自己写的，见
+[`app/api/canary/openapi.py`](app/api/canary/openapi.py)，没有那两个页面。
 
 ### 业务规则一览
 
@@ -128,18 +193,32 @@ service 用 `async with self.database.begin()` 包住整个用例。一次借书
 **并与 HTTP 状态行一致**（`app/testing.py::failure` 守着这条）。信封是给前端的契约，
 状态码是给网关和客户端的——两样都给，只看一样也能判断结果。
 
-请求体校验失败是唯一的例外：那由 FastAPI 在进 handler 之前处理，返回它自己的 422 格式。
+请求体校验失败是唯一的例外：那由 HTTP 层在进接口之前处理，返回 pydantic 的错误列表
+`{"detail": [...]}`。两层的格式几乎一样，差一个字段——FastAPI 的每条错误里多一个
+`input`（被拒的那份输入），应用单元那层没有（它调 pydantic 的 `errors(include_input=False)`）。
+`loc`、`msg` 与 `type` 逐字相同，所以按 `type` 做分支的客户端不受影响。
+这是两层唯一的对外差异，[`tests/test_parity.py`](tests/test_parity.py) 里单独钉着。
 
 ## 测试
 
 ```bash
-uv run pytest                                      # 101 passed
-uv run pytest tests/test_framework_boundaries.py   # 21 条：Canary ↔ FastAPI 接缝
+uv run pytest                                      # 219 passed
+uv run pytest tests/test_framework_boundaries.py   # 两层各跑一遍：监听、失败回收、替换
+uv run pytest tests/test_parity.py                 # 两层逐条比对同一串请求 + 同步接口进线程池
+uv run pytest tests/test_stack_canary.py           # 应用单元那层独有的规则、lifespan 与 uvicorn 组合
+uv run pytest tests/test_stack_fastapi.py          # OpenAPI / docs / tags / 那座桥 / FastAPI 校验
+uv run pytest -k "[canary]"                        # 只跑 canary 那一遍
 ```
+
+`tests/conftest.py` 的 `stack` fixture 被参数化成 `canary` 与 `fastapi`，而 `root` / `app` /
+`client` / `database` 都依赖它，所以**每个用到 client 的测试都会跑两遍**。`client` 用
+`httpx.ASGITransport` 直接打那一层的 ASGI 应用，不经网络也不要服务器——canary 那边的 `app`
+就是应用单元自己。
 
 测试替换实现用框架自带的 `Scope.provide`：在生命周期开始之前
 `scope_of(root).provide(AppConfig, AppConfig(...))`，整张图拿到的就是替身，真单元连构造
 都不会发生。见 `tests/test_framework_boundaries.py` 的「替换」一节。
 
-注意与 `app/wiring.py` 里的 `provide(Cls)` 区分：那是给 FastAPI handler 用的依赖函数，
-从已启动的图上**取**单元；`Scope.provide` 是在启动前往图上**放**替身。
+注意两个方向的区分：`Scope.provide` 是在启动前往图上**放**替身；
+`canary_framework.test.unit(root, Cls)` 是从已启动的图上**取**单元——原生 FastAPI 那座桥
+（`app/api/fastapi/bridge.py` 的 `use()`）要的正是这一个动作。

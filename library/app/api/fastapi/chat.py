@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter
 
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.chat.schema import (
     AnswerResponse,
@@ -15,11 +16,10 @@ from app.module.chat.schema import (
     CreateChatSessionRequest,
 )
 from app.module.chat.service import AssistantService
-from app.wiring import unit
 
-router = APIRouter(prefix="/api/assistant", tags=["智能助手"])
+router = APIRouter(prefix="/assistant", tags=["智能助手"])
 
-Assistant = Annotated[AssistantService, unit(AssistantService)]
+Assistant = Annotated[AssistantService, use(AssistantService)]
 
 
 @router.post("/ask")

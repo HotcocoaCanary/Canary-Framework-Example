@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter
 
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.loan.schema import (
     BorrowRequest,
@@ -16,11 +17,10 @@ from app.module.loan.schema import (
     ReturnRequest,
 )
 from app.module.loan.service import CirculationService
-from app.wiring import unit
 
-router = APIRouter(prefix="/api/circulation", tags=["借还流通"])
+router = APIRouter(prefix="/circulation", tags=["借还流通"])
 
-Circulation = Annotated[CirculationService, unit(CirculationService)]
+Circulation = Annotated[CirculationService, use(CirculationService)]
 
 
 @router.post("/borrow")

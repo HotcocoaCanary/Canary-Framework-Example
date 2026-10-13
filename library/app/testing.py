@@ -3,24 +3,73 @@
 放在包里而不是 ``tests/conftest.py``，是为了两个场景都能有一个叫 ``tests/`` 的目录而
 不在 import 时撞车。
 
-替换单元用框架自带的 ``Scope.provide``：在生命周期开始之前
-``scope_of(root).provide(AppConfig, AppConfig(...))``，整张图拿到的就是替身，真单元
-连构造都不会发生；替身照常跑自己的钩子、推进自己声明的依赖、被 ``stop()`` 回收。
+启动一张图、按类型取单元、换替身，都用框架自带的 ``canary_framework.test``：
+``running(LibraryApi, {AppConfig: AppConfig(...)})`` 与 ``unit(root, Database)``。这里只剩
+图书馆业务自己的辅助函数。
 """
 
 from __future__ import annotations
 
-from canary_framework import Canary, scope_of
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import Any
+
+from canary_framework import Canary
+from canary_framework.test import running
+from canary_framework.web.asgi import Application
+from canary_framework.web.asgi.server import Server
+
+from app.api import gateway, root_unit
+from app.api import stack as stack_module
+from app.infra.db import Database
+from app.module.db.models import Loan, utcnow
 
 
-def unit[T: Canary](root: Canary, cls: type[T]) -> T:
-    """The scope's instance of *cls* —— 0.9.x 里 ``canary[Type]`` 的替代写法。"""
-    return scope_of(root).instances[cls]  # type: ignore[return-value]
+@asynccontextmanager
+async def running_stack(
+    name: str, doubles: dict[Any, Any] | None = None
+) -> AsyncIterator[tuple[Canary, Application]]:
+    """Start one HTTP layer and yield ``(graph root, ASGI application)``.
+
+    启动某一层，产出"图的根"与"ASGI 应用"两样东西。两层在这里的差别一眼能看见：
+
+    * canary 层：应用单元自己就是根，**也**就是那个 ASGI 应用；
+    * fastapi 层：根是 ``Services``（组合根单元），应用要用 ``create_app(root)`` 另外建，
+      并且要把图挂到它身上（见 ``app/api/fastapi/bridge.py``）。
+
+    没有服务器，也没有端口——两层都只是 ASGI 应用，``httpx.ASGITransport`` 直接打。
+    """
+    async with running(root_unit(name), doubles) as root:
+        if name == "canary":
+            yield root, root
+        else:
+            yield root, stack_module(name).create_app(root)
 
 
-def root_of(client) -> Canary:
-    """The composition root behind a ``TestClient``."""
-    return client.app.state.root  # type: ignore[no-any-return]
+def listener(stack: str) -> type[Server]:
+    """A ``Gateway`` subclass of *stack* that lets the system pick the port.
+
+    某一层 HTTP 的 ``Gateway`` 子类，端口交给系统分配。两个栈各有一个 ``Gateway``，因为
+    ``dep()`` 是写在类上的声明——"听哪个应用"不能在运行期挑。
+    """
+    base = gateway(stack)
+    return type(f"Test{base.__name__}", (base,), {"host": "127.0.0.1", "port": 0})
+
+
+def paths_of(name: str, root: Canary, app: Any) -> set[str]:
+    """Every path this HTTP layer registered.
+
+    这一层实际注册了哪些路径。两层都从自己的 OpenAPI 文档里读：
+
+    * 原生 FastAPI：``app.openapi()``，FastAPI 自带；
+    * 应用单元：``root.document``，由 ``app/api/canary/openapi.py`` 照着公开的接口表
+      （``App.endpoints``）生成。
+
+    两边返回同一个集合，所以路由表的等价性可以直接断言。
+    """
+    document = app.openapi() if name == "fastapi" else root.document
+    return set(document["paths"])
 
 
 def payload(response):
@@ -34,7 +83,7 @@ def payload(response):
 def failure(response) -> tuple[int, str]:
     """Unwrap ``R`` and assert the call reported a domain failure.
 
-    失败同时出现在状态行和信封里，两者必须一致——这由 ``app/wiring.py`` 的那一个异常
+    失败同时出现在状态行和信封里，两者必须一致——这由 ``LibraryApi`` 的那一个异常
     处理器保证。0.9.x 要靠每个 handler 自己记得 ``await ok(...)``，漏一个就变 500。
     """
     body = response.json()
@@ -43,7 +92,7 @@ def failure(response) -> tuple[int, str]:
     return body["code"], body["msg"]
 
 
-def make_book(client, **overrides) -> dict:
+async def make_book(client, **overrides) -> dict:
     request = {
         "title": "分布式系统：概念与设计",
         "author": "George Coulouris",
@@ -51,34 +100,20 @@ def make_book(client, **overrides) -> dict:
         "copies": 1,
     }
     request.update(overrides)
-    return payload(client.post("/api/catalog/books", json=request))
+    return payload(await client.post("/api/catalog/books", json=request))
 
 
-def make_reader(client, **overrides) -> dict:
+async def make_reader(client, **overrides) -> dict:
     request = {"name": "张三", "level": "normal"}
     request.update(overrides)
-    return payload(client.post("/api/readers/", json=request))
+    return payload(await client.post("/api/readers/", json=request))
 
 
-def make_overdue(client, loan_id: str, days: int) -> None:
-    """Backdate a loan so that it is *days* days overdue, right now.
-
-    写操作跑在 client 自己的事件循环门户上：异步引擎——以及内存 SQLite 被钉住的那一条
-    连接——属于应用启动时所在的那个循环。
-    """
-    from datetime import timedelta
-
-    from app.infra.db import Database
-    from app.module.db.models import Loan, utcnow
-
-    database = unit(root_of(client), Database)
-
-    async def _age() -> None:
-        async with database.begin() as session:
-            loan = await session.get(Loan, loan_id)
-            shift = loan.due_at - (utcnow() - timedelta(days=days))
-            loan.due_at -= shift
-            loan.borrowed_at -= shift
-            session.add(loan)
-
-    client.portal.call(_age)
+async def make_overdue(database: Database, loan_id: str, days: int) -> None:
+    """Backdate a loan so that it is *days* days overdue, right now."""
+    async with database.begin() as session:
+        loan = await session.get(Loan, loan_id)
+        shift = loan.due_at - (utcnow() - timedelta(days=days))
+        loan.due_at -= shift
+        loan.borrowed_at -= shift
+        session.add(loan)

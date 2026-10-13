@@ -1,26 +1,22 @@
 """Application settings — a unit that is also a pydantic model.
 
-0.10.0 的单元就是普通 Python 类，所以配置不必在"pydantic 模型"和"图上的节点"之间
-二选一，两个基类一起继承即可::
-
-    class AppConfig(BaseSettings, Canary): ...
-
-``BaseSettings`` 读 ``.env`` 与环境变量，``Canary`` 让它成为图上的一个节点：谁要用谁写
+``canary_framework.config.Settings`` 就是 ``BaseSettings`` 加 ``Canary``：``BaseSettings`` 读
+``.env`` 与环境变量，``Canary`` 让它成为图上的一个节点。谁要用谁写
 ``config = dep(AppConfig)``，整张图共享同一个实例。
 
-配置在框架里没有任何特殊地位——0.9.x 一度把它做成"类级注解即声明"的注入源，还配了一个
-``canary_framework.Config`` 基类，那条路连同整个装饰器体系一起删掉了。
+之前这里是自己写 ``class AppConfig(BaseSettings, Canary)``，效果一样；换成 ``Settings``
+多出来的只有一点：模型里可以直接写 ``dep()`` 而不被 pydantic 当成字段。
 
 可插拔的模型实现由 ``embedding_provider`` / ``chat_provider`` 决定，由单元自己读
 （见 ``app/infra/ai.py``）：框架没有装配期的替换入口，图上的实例一律由框架无参构造。
 """
 
-from canary_framework import Canary
+from canary_framework.config import Settings
 from pydantic import computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
 
-class AppConfig(BaseSettings, Canary):
+class AppConfig(Settings):
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
     log_level: str = "DEBUG"

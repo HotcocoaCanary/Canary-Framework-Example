@@ -1,0 +1,39 @@
+[project]
+name = "canary-pipeline"
+version = "1.0.0"
+description = "场景四：对账单导入流水线 —— HTTP 接入与队列消费者同进程，两步优雅停机"
+requires-python = ">=3.12"
+dependencies = [
+    "canary-framework[config,web]>=1.2.0,<2",
+    # 第二层 HTTP 是一个原生 FastAPI 应用（由我们的 Server 服务）
+    "fastapi>=0.121",
+    "pydantic>=2.13.4",
+]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipeline"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]

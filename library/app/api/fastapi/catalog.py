@@ -1,13 +1,4 @@
-"""``/api/catalog`` — the bibliographic catalogue and its physical holdings.
-
-路由是普通的 FastAPI ``APIRouter``，handler 是普通函数。它需要的 service 由
-``unit(CatalogService)`` 从运行中的那张图里取——这就是 Canary 与 web 框架之间的
-全部接触面，见 ``app/wiring.py``。
-
-**前缀是绝对的。** 每个 router 自己写全 ``/api/catalog``：依赖关系说的是启动顺序和谁能
-调谁，URL 说的是对外的资源命名，两件事不该互相决定。好处是"这条路由挂在哪儿"只看
-一处就知道。
-"""
+"""``/api/catalog`` — the bibliographic catalogue and its physical holdings."""
 
 from __future__ import annotations
 
@@ -15,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter
 
+from app.api.fastapi.bridge import use
 from app.common.response import PageR, R
 from app.module.catalog.schema import (
     AddCopiesRequest,
@@ -26,11 +18,10 @@ from app.module.catalog.schema import (
     UpdateCopyRequest,
 )
 from app.module.catalog.service import CatalogService
-from app.wiring import unit
 
-router = APIRouter(prefix="/api/catalog", tags=["书目与馆藏"])
+router = APIRouter(prefix="/catalog", tags=["书目与馆藏"])
 
-Catalog = Annotated[CatalogService, unit(CatalogService)]
+Catalog = Annotated[CatalogService, use(CatalogService)]
 
 
 @router.post("/books")
