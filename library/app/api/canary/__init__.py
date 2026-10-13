@@ -12,18 +12,24 @@
   所以它既能交给本框架的 ``Server``（``main.py``），也能直接交给 uvicorn（``asgi.py``）；
 * 领域异常用 ``@error(DomainError)`` 标记应用单元的方法，返回 ``Response.json(...)``。
 
-没有的东西：OpenAPI、``/docs``、WebSocket、表单上传。换来的是只依赖 pydantic。
+``/openapi.json`` 是这一层自己写的：框架只公开接口表（``App.endpoints``），照着它生成文档的
+那个函数在 ``openapi.py``。
+
+没有的东西：``/docs`` 这类页面、WebSocket、表单上传。换来的是只依赖 pydantic。
 """
 
 from __future__ import annotations
 
-from canary_framework import dep
+from typing import Any
+
+from canary_framework import dep, init
 from canary_framework.web.asgi.app import App, Request, Response, Router, error, get
 from canary_framework.web.asgi.server import Server
 
 from app.api.canary.catalog import CatalogApi
 from app.api.canary.chat import AssistantApi
 from app.api.canary.loan import CirculationApi
+from app.api.canary.openapi import openapi
 from app.api.canary.rag import RagApi
 from app.api.canary.reader import ReaderApi
 from app.common.errors import DomainError
@@ -75,6 +81,19 @@ class LibraryApi(App):
     async def on_domain_error(self, _: Request, exc: DomainError) -> Response:
         """Turn domain errors into the envelope — one place, for every route."""
         return Response.json(R.fail(exc.message, exc.code), status=exc.code)
+
+    @init
+    def describe(self) -> None:
+        """Write the OpenAPI document once — 接口表在基类的 ``@init`` 里已经建好。
+
+        文档只描述业务接口，不描述它自己，与 FastAPI 那一层的做法一致。
+        """
+        described = [e for e in self.endpoints if e.path != "/openapi.json"]
+        self.document = openapi(described, "智能图书馆管理系统 API", "1.0.0")
+
+    @get("/openapi.json")
+    async def spec(self) -> dict[str, Any]:
+        return self.document
 
 
 class Gateway(Server, access_log=False):

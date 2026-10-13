@@ -9,7 +9,7 @@
 | 这一层 | 怎么写 | 它带来什么 |
 |---|---|---|
 | [`app/api/canary/`](app/api/canary) | 路由与应用都是单元（`canary_framework.web.asgi.app`） | 应用单元自己就是一个 ASGI 应用，service 靠 `dep()` 声明；只依赖 pydantic |
-| [`app/api/fastapi/`](app/api/fastapi) | 原生 FastAPI：模块级 `APIRouter` + `Depends` | OpenAPI、`/docs`、`tags`、FastAPI 生态 |
+| [`app/api/fastapi/`](app/api/fastapi) | 原生 FastAPI：模块级 `APIRouter` + `Depends` | 自带的 OpenAPI、`/docs`、`tags`、FastAPI 生态 |
 
 第二层是**原生的** FastAPI 应用，由我们的 `Server` 服务。框架不再包装任何 web 框架——旧的
 `canary_framework.asgi.fastapi` 与它的 `mount()` 整个没有了——因为 ASGI 的意义就是两边各守
@@ -175,8 +175,9 @@ service 用 `async with self.database.begin()` 包住整个用例。一次借书
 | RAG | `POST/GET /api/rag/documents`、`POST /api/rag/books/{id}/index`、`GET /api/rag/search?q=` |
 | 助手 | `POST /api/assistant/ask`、`POST /api/assistant/sessions/{id}/ask`、`GET .../messages` |
 
-完整文档：以 fastapi 版启动后访问 `/docs`（Swagger UI）或 `/redoc`。canary 版不生成
-OpenAPI，所以也没有这两个地址——路径表只能从代码（或 `app.testing.paths_of`）读。
+完整文档：两版都有 `/openapi.json`。fastapi 版的是 FastAPI 自带的，另有 `/docs`（Swagger UI）
+与 `/redoc`；canary 版的是本项目照着应用单元公开的接口表（`App.endpoints`）自己写的，见
+[`app/api/canary/openapi.py`](app/api/canary/openapi.py)，没有那两个页面。
 
 ### 业务规则一览
 

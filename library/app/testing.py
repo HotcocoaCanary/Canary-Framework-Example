@@ -60,19 +60,16 @@ def listener(stack: str) -> type[Server]:
 def paths_of(name: str, root: Canary, app: Any) -> set[str]:
     """Every path this HTTP layer registered.
 
-    这一层实际注册了哪些路径。两层的来源不一样，而这正是应用单元那边的一个缺口：
+    这一层实际注册了哪些路径。两层都从自己的 OpenAPI 文档里读：
 
-    * 原生 FastAPI：读 ``app.openapi()["paths"]``——公开、现成；
-    * 应用单元：只能读 ``canary_framework.web.asgi.app.router.collect()``，它**不是公开
-      API**（这个包不生成 OpenAPI，也没有别的办法问"你注册了哪些路径"）。
+    * 原生 FastAPI：``app.openapi()``，FastAPI 自带；
+    * 应用单元：``root.document``，由 ``app/api/canary/openapi.py`` 照着公开的接口表
+      （``App.endpoints``）生成。
 
     两边返回同一个集合，所以路由表的等价性可以直接断言。
     """
-    if name == "fastapi":
-        return set(app.openapi()["paths"])
-    from canary_framework.web.asgi.app.router import collect
-
-    return {path for path, _route, _call in collect(root)}
+    document = app.openapi() if name == "fastapi" else root.document
+    return set(document["paths"])
 
 
 def payload(response):

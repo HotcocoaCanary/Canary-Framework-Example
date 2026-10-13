@@ -2,7 +2,7 @@
 
 ``canary_framework.web.asgi.app`` 的规则和 FastAPI 不完全一样，这个文件把**差别**钉住：
 尾斜杠严格、405 带 ``Allow``、``HEAD`` 由 ``GET`` 应答、``@error`` 处理器、``Response``
-与 ``HTTPError`` 的用法，以及它**没有**的那些东西。
+与 ``HTTPError`` 的用法、公开的接口表与照着它写的 OpenAPI，以及它**没有**的那些东西。
 
 换一层 HTTP 时真正会咬人的就是这些，所以每条都写明"FastAPI 那边是什么样"。
 """
@@ -28,27 +28,78 @@ def _client(app) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 
 
-# --- 没有的东西 -------------------------------------------------------------
+# --- 接口表与 OpenAPI ------------------------------------------------------
 
 
-async def test_there_is_no_openapi_and_no_docs(canary_client) -> None:
-    """这一层不生成 OpenAPI，所以 ``/docs`` 与 ``/openapi.json`` 只是两个没人应答的路径。"""
-    for path in ("/docs", "/openapi.json", "/redoc"):
-        answer = await canary_client.get(path)
-        assert (answer.status_code, answer.json()) == (404, {"detail": "Not Found"}), path
+async def test_the_endpoint_table_is_public(canary_client) -> None:
+    """``App.endpoints`` 回答"这个版本到底挂了哪些接口"，不用碰框架的内部。
 
-
-async def test_the_route_table_has_no_public_reader(canary_client) -> None:
-    """**【毛病】** 没有任何公开办法问"你注册了哪些路径"。
-
-    FastAPI 那边读 ``/openapi.json`` 就有；这一层既没有 OpenAPI，也没有导出路由表的东西，
-    只能去动 ``canary_framework.web.asgi.app.router.collect``——它不在 ``__init__`` 的
-    ``__all__`` 里。运维要确认"这个版本到底挂了哪些接口"时，这是个真缺口。
+    每个接口给出方法、完整路径、状态码，以及每个形参从哪里取值——绑定规则的**结果**，
+    所以读它的人不用把规则再抄一遍。
     """
     from canary_framework.web.asgi.app import __all__ as exported
 
-    assert "collect" not in exported
-    assert "Table" not in exported
+    assert {"Endpoint", "Param"} <= set(exported)
+
+    async with running(LibraryApi) as api:
+        table = {(e.method, e.path): e for e in api.endpoints}
+        assert ("GET", "/api/health") in table
+        assert ("GET", "/openapi.json") in table
+
+        update = table["PATCH", "/api/catalog/books/{book_id}"]
+        assert [(p.name, p.source) for p in update.params] == [
+            ("book_id", "path"),
+            ("body", "body"),
+        ]
+        listing = table["GET", "/api/catalog/books"]
+        assert {p.source for p in listing.params} == {"query"}
+        assert not any(p.required for p in listing.params)
+
+
+async def test_openapi_is_written_from_the_table(canary_client) -> None:
+    """``/openapi.json`` 是这个项目自己照着接口表写的（``app/api/canary/openapi.py``）。
+
+    框架不生成 OpenAPI；FastAPI 那边是自带的。两份文档的**路径与方法**一致，这由
+    ``test_assembly.py`` 与下面的断言一起钉住。
+    """
+    answer = await canary_client.get("/openapi.json")
+    assert answer.status_code == 200
+    document = answer.json()
+    assert document["openapi"] == "3.1.0"
+    assert document["info"] == {"title": "智能图书馆管理系统 API", "version": "1.0.0"}
+    assert "/openapi.json" not in document["paths"]
+
+    create = document["paths"]["/api/catalog/books"]["post"]
+    assert list(create["responses"]) == ["200"]
+    assert create["requestBody"]["required"] is True
+    reference = create["requestBody"]["content"]["application/json"]["schema"]
+    schema = reference
+    if "$ref" in reference:
+        schema = document["components"]["schemas"][reference["$ref"].rsplit("/", 1)[1]]
+    assert "title" in schema["properties"]
+
+    show = document["paths"]["/api/catalog/books/{book_id}"]["get"]
+    assert show["parameters"] == [
+        {"name": "book_id", "in": "path", "required": True, "schema": {"type": "string"}}
+    ]
+
+
+async def test_both_layers_describe_the_same_operations(canary_client, fastapi_client) -> None:
+    """两份 OpenAPI 里的（路径，方法）是同一个集合。"""
+
+    def operations(document: dict) -> set[tuple[str, str]]:
+        return {(path, verb) for path, verbs in document["paths"].items() for verb in verbs}
+
+    ours = (await canary_client.get("/openapi.json")).json()
+    theirs = (await fastapi_client.get("/openapi.json")).json()
+    assert operations(ours) == operations(theirs)
+
+
+async def test_there_are_no_documentation_pages(canary_client) -> None:
+    """``/docs`` 与 ``/redoc`` 是 FastAPI 自带的页面，这一层没有。"""
+    for path in ("/docs", "/redoc"):
+        answer = await canary_client.get(path)
+        assert (answer.status_code, answer.json()) == (404, {"detail": "Not Found"}), path
 
 
 async def test_the_application_answers_the_lifespan_protocol() -> None:
@@ -278,9 +329,7 @@ async def test_an_endpoint_is_a_plain_bound_method() -> None:
         answer = await api.api.system.health()
         assert answer.data["status"] == "ok"
 
-        book = await api.api.catalog.create_book(
-            CreateBookRequest(title="不经 HTTP", author="x")
-        )
+        book = await api.api.catalog.create_book(CreateBookRequest(title="不经 HTTP", author="x"))
         fetched = await api.api.catalog.get_book(book.data.id)
         assert fetched.data.title == "不经 HTTP"
 
