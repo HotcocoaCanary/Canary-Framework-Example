@@ -1,6 +1,6 @@
 # 场景一：智能图书馆管理系统
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.1**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.2**
 搭的图书馆管理系统：书目与馆藏、读者、借还流通与预约队列，外加一个基于 RAG 的
 智能馆员助手。
 
@@ -25,7 +25,7 @@
 
 ```bash
 uv sync
-uv run pytest                                   # 217 个测试（行为测试跑两遍），零外部依赖
+uv run pytest                                   # 219 个测试（行为测试跑两遍），零外部依赖
 
 uv run python main.py                           # canary 版（路由与应用都是单元），:8010
 uv run python main.py --stack fastapi           # 原生 FastAPI 版，:8110，带 /docs
@@ -202,7 +202,7 @@ service 用 `async with self.database.begin()` 包住整个用例。一次借书
 ## 测试
 
 ```bash
-uv run pytest                                      # 217 passed
+uv run pytest                                      # 219 passed
 uv run pytest tests/test_framework_boundaries.py   # 两层各跑一遍：监听、失败回收、替换
 uv run pytest tests/test_parity.py                 # 两层逐条比对同一串请求 + 同步接口进线程池
 uv run pytest tests/test_stack_canary.py           # 应用单元那层独有的规则、lifespan 与 uvicorn 组合

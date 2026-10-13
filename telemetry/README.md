@@ -1,6 +1,6 @@
 # 场景二：设备遥测采集与告警
 
-一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.1**
+一个用 [Canary Framework](https://pypi.org/project/canary-framework/) **1.2**
 写的**常驻守护进程**：周期采集设备指标 → 滚动窗口聚合 → 规则评估 → 告警去重投递。
 
 与 [场景一](../library/README.md) 的对照是刻意的：那里是请求驱动的 HTTP API，由 ASGI

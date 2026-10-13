@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "场景三：门店边缘中继 —— 一个进程两个端口、一个端口多个应用（HTTP + WebSocket + /metrics）"
 requires-python = ">=3.12"
 dependencies = [
-    "canary-framework[config,web]>=1.1.0,<2",
+    "canary-framework[config,web]>=1.2.0,<2",
     # 第二层 HTTP 是一个原生 FastAPI 应用（由我们的 Server 服务）
     "fastapi>=0.121",
     # uvicorn 自己不带 WebSocket 实现，canary-framework[server] 也只要 uvicorn；
@@ -13,10 +13,6 @@ dependencies = [
     "pydantic>=2.13.4",
 ]
 
-# 试用尚未发布的扩展包：指向上一级的框架源码（本仓作为框架仓的 examples 子模块时成立）。
-# 扩展包发布后删掉这一段，改回版本约束。
-[tool.uv.sources]
-canary-framework = { path = "../..", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["relay"]

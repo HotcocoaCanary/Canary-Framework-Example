@@ -4,16 +4,12 @@ version = "1.0.0"
 description = "场景五：电商后台的渐进迁移 —— 已有 FastAPI 应用用 mount() 接入路由单元"
 requires-python = ">=3.12"
 dependencies = [
-    "canary-framework[config,web]>=1.1.0,<2",
+    "canary-framework[config,web]>=1.2.0,<2",
     # 老应用是原生 FastAPI；框架只认 ASGI 协议，不包装它
     "fastapi>=0.121",
     "pydantic>=2.13.4",
 ]
 
-# 试用尚未发布的扩展包：指向上一级的框架源码（本仓作为框架仓的 examples 子模块时成立）。
-# 扩展包发布后删掉这一段，改回版本约束。
-[tool.uv.sources]
-canary-framework = { path = "../..", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["shop"]

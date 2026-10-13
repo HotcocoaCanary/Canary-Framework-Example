@@ -1,6 +1,6 @@
 name: CI
 
-# 两个示例各是一个独立的 uv 工程，分别安装、检查与测试。
+# 五个示例各是一个独立的 uv 工程，分别安装、检查与测试。
 # 另有一个每周任务：用框架 main 分支的最新代码跑一遍测试，框架的改动一旦破坏示例能提前发现。
 
 on:
@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [library, telemetry]
+        project: [library, telemetry, relay, pipeline, shop]
         python: ["3.12", "3.15"]
     defaults:
       run:
@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [library, telemetry]
+        project: [library, telemetry, relay, pipeline, shop]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
