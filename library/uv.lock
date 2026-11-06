@@ -98,11 +98,11 @@ wheels = [
 
 [[package]]
 name = "canary-framework"
-version = "1.2.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b4/86/77c5472f17226a3fd9a68f6aac2f7a03d4b8914adc00c6e6d5c73dc72bd7/canary_framework-1.2.0.tar.gz", hash = "sha256:36c9df1eb25b1325c1368f256c047743c6d1a0599b0052b9ea3c36ccb6076115", size = 94936, upload-time = "2026-10-13T02:34:49.506Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/39/b26821d6f338363b82bd59c689ad0ccdea2a74a8e2ee7289bcd3ec4f8d86/canary_framework-1.3.0.tar.gz", hash = "sha256:1cee285f673ecdd950a235af78dcc9e01e5b39c0b0a81fa2bec9dc2917521af9", size = 103101, upload-time = "2026-11-02T03:33:33.265Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/5d/f239111906063ad09a34fddb720e55495487f37556a078866454b5911abd/canary_framework-1.2.0-py3-none-any.whl", hash = "sha256:d1aea7308a47cec6263cf8d8b6b8e644c8b0c0dc0c6043f112525c8c3eaf32ec", size = 62483, upload-time = "2026-10-13T02:34:48.109Z" },
+    { url = "https://files.pythonhosted.org/packages/02/b1/130eb40e40a87cc804e90ba38866e01efdd736c805338d6dd88ce583e972/canary_framework-1.3.0-py3-none-any.whl", hash = "sha256:fc61ee44a5031605943ad4e806c4169df3761163e5e4236091ef647d569da168", size = 67239, upload-time = "2026-11-02T03:33:31.623Z" },
 ]
 
 [package.optional-dependencies]
@@ -112,6 +112,7 @@ config = [
 web = [
     { name = "pydantic" },
     { name = "uvicorn" },
+    { name = "wsproto" },
 ]
 
 [[package]]
@@ -676,4 +677,16 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cfc589dfff3cb796bd07a3aeb1a3e415ba09dd89d7bb4/uvicorn-0.54.0.tar.gz", hash = "sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620", size = 112283, upload-time = "2026-09-25T06:52:37.601Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl", hash = "sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf", size = 87427, upload-time = "2026-09-25T06:52:35.829Z" },
+]
+
+[[package]]
+name = "wsproto"
+version = "1.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "h11" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c7/79/12135bdf8b9c9367b8701c2c19a14c913c120b882d50b014ca0d38083c2c/wsproto-1.3.2.tar.gz", hash = "sha256:b86885dcf294e15204919950f666e06ffc6c7c114ca900b060d6e16293528294", size = 50116, upload-time = "2025-11-20T18:18:01.871Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/f5/10b68b7b1544245097b2a1b8238f66f2fc6dcaeb24ba5d917f52bd2eed4f/wsproto-1.3.2-py3-none-any.whl", hash = "sha256:61eea322cdf56e8cc904bd3ad7573359a242ba65688716b0710a5eb12beab584", size = 24405, upload-time = "2025-11-20T18:18:00.454Z" },
 ]
